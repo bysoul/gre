@@ -3,6 +3,7 @@ build
 build/*
 resources
 resources/*
+.idea
 # result
 # result/*
 

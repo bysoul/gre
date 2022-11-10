@@ -8,6 +8,7 @@ include(ExternalProject)
 find_package(OpenMP)
 find_package(MKL REQUIRED)
 find_package(JeMalloc REQUIRED)
+set(TBB_DIR "/tmp/my_installed_onetbb/lib64/cmake/TBB")
 find_package(TBB REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -21,7 +22,7 @@ include_directories(SYSTEM src/competitor/hot/src/libs/hot/rowex/include)
 include_directories(SYSTEM src/competitor/hot/src/libs/hot/single-threaded/include)
 include_directories(SYSTEM src/competitor/hot/src/libs/idx/content-helpers/include)
 
-add_compile_options(-faligned-new -march=native -g -O3)
+add_compile_options(-faligned-new -march=native -g -O3 -fkeep-inline-functions -gdwarf-2)
 
 # add_subdirectory(src/competitor/wormhole)
 add_subdirectory(src/competitor/wormhole_u64)
@@ -39,4 +40,4 @@ target_link_libraries(microbench
         MASSTREE
 )
 
-target_link_libraries(microbench PUBLIC OpenMP::OpenMP_CXX ${JEMALLOC_LIBRARIES} ${MKL_LIBRARIES} ${TBB_LIBRARIES})
+target_link_libraries(microbench PUBLIC OpenMP::OpenMP_CXX TBB::tbb ${JEMALLOC_LIBRARIES} ${MKL_LIBRARIES} ${TBB_LIBRARIES})
