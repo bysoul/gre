@@ -45,8 +45,8 @@ class Benchmark {
     double init_table_ratio;
     double del_table_ratio;
     size_t thread_num = 1;
-    std::vector<std::string> all_index_type;
-    std::vector<std::string> all_thread_num;
+    std::vector <std::string> all_index_type;
+    std::vector <std::string> all_thread_num;
     std::string index_type;
     std::string keys_file_path;
     std::string keys_file_type;
@@ -60,10 +60,10 @@ class Benchmark {
     bool dataset_statistic;
     bool data_shift = false;
 
-    std::vector<KEY_TYPE> init_keys;
+    std::vector <KEY_TYPE> init_keys;
     KEY_TYPE *keys;
-    std::pair<KEY_TYPE, PAYLOAD_TYPE> *init_key_values;
-    std::vector<std::pair<Operation, KEY_TYPE>> operations;
+    std::pair <KEY_TYPE, PAYLOAD_TYPE> *init_key_values;
+    std::vector <std::pair<Operation, KEY_TYPE>> operations;
     std::mt19937 gen;
 
     struct Stat {
@@ -92,12 +92,12 @@ class Benchmark {
 
     struct alignas(CACHELINE_SIZE)
     ThreadParam {
-        std::vector<std::pair<uint64_t, uint64_t>> latency;
-        uint64_t success_insert = 0;
-        uint64_t success_read = 0;
-        uint64_t success_update = 0;
-        uint64_t success_remove = 0;
-        uint64_t scan_not_enough = 0;
+      std::vector <std::pair<uint64_t, uint64_t>> latency;
+      uint64_t success_insert = 0;
+      uint64_t success_read = 0;
+      uint64_t success_update = 0;
+      uint64_t success_remove = 0;
+      uint64_t scan_not_enough = 0;
     };
     typedef ThreadParam param_t;
 public:
@@ -156,7 +156,7 @@ public:
 #pragma omp parallel for num_threads(thread_num)
       for (int i = 0; i < init_keys.size(); i++) {
         init_key_values[i].first = init_keys[i];
-        init_key_values[i].second = 123456789;
+        init_key_values[i].second = init_keys[i];
       }
       COUT_VAR(table_size);
       COUT_VAR(init_keys.size());
@@ -320,7 +320,7 @@ public:
         thread_param.latency.reserve(operations_num / latency_sample_interval);
         // Operation Parameter
         PAYLOAD_TYPE val;
-        std::pair<KEY_TYPE, PAYLOAD_TYPE> *scan_result = new std::pair<KEY_TYPE, PAYLOAD_TYPE>[scan_num];
+        std::pair <KEY_TYPE, PAYLOAD_TYPE> *scan_result = new std::pair<KEY_TYPE, PAYLOAD_TYPE>[scan_num];
         // waiting all thread ready
 #pragma omp barrier
 #pragma omp master
@@ -336,17 +336,17 @@ public:
 
           if (op == READ) {  // get
             auto ret = index->get(key, val, &paramI);
-            // if(!ret) {
-            //     printf("read not found, Key %lu\n",key);
-            //     continue;
-            // }
-            // if(val != 123456789) {
-            //     printf("read failed, Key %lu, val %llu\n",key, val);
-            //     exit(1);
-            // }
+            if (!ret) {
+              printf("read not found, Key %lu\n", key);
+              continue;
+            }
+            if (val != key) {
+              printf("read failed, Key %lu, val %llu\n", key, val);
+              exit(1);
+            }
             thread_param.success_read += ret;
           } else if (op == INSERT) {  // insert
-            auto ret = index->put(key, 123456789, &paramI);
+            auto ret = index->put(key, key, &paramI);
             thread_param.success_insert += ret;
           } else if (op == UPDATE) {  // update
             auto ret = index->update(key, 234567891, &paramI);

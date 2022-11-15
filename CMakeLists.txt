@@ -22,7 +22,7 @@ include_directories(SYSTEM src/competitor/hot/src/libs/hot/rowex/include)
 include_directories(SYSTEM src/competitor/hot/src/libs/hot/single-threaded/include)
 include_directories(SYSTEM src/competitor/hot/src/libs/idx/content-helpers/include)
 
-add_compile_options(-faligned-new -march=native -g -O3 -fkeep-inline-functions -gdwarf-2)
+add_compile_options(-faligned-new -march=native -O3)
 
 # add_subdirectory(src/competitor/wormhole)
 add_subdirectory(src/competitor/wormhole_u64)

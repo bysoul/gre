@@ -21,6 +21,9 @@
 #include <thread>
 #include <vector>
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 namespace lipp_prob {
 
 // runtime assert
@@ -267,7 +270,7 @@ public:
         }
         std::vector < Node * > nodes;
         for (int _ = 0; _ < 1e7; _++) {
-          Node *node = build_tree_two(T(0), P(), T(1), P(), 0, 0);
+          Node *node = build_tree_two(T(0), P(), T(1), P(), 0, 0, 1);
           nodes.push_back(node);
         }
         for (auto node: nodes) {
@@ -330,7 +333,6 @@ public:
 
     ~LIPP() {
       std::cout << "Lipp_Probability Destruct." << std::endl;
-      std::cout << "num_probability_trigger: " << num_probability_trigger.load() << std::endl;
       destroy_tree(root);
       root = NULL;
       destory_pending();
@@ -348,7 +350,6 @@ public:
     bool at(const T &key, P &value) {
       EpochGuard guard(this);
       int restartCount = 0;
-      bool ret;
       restart:
       if (restartCount++)
         yield(restartCount);
@@ -358,27 +359,16 @@ public:
       uint64_t versionItem;
       Node *parent = nullptr;
 
-      //for probability
       constexpr int MAX_DEPTH = 128;
       Node *path[MAX_DEPTH];
       int path_size = 0;
-
-      /*Node *node_prob_prev = nullptr;
-      Node *node_prob_cur = nullptr;
-
-      uint32_t temp=this->temp;*/
+      int num_fixed=0;
+      bool ret = false;
       for (Node *node = root;;) {
-        /*if (node_prob_cur == nullptr
-            && path_size >= 0
-            && node->build_size < 7000000
-            ) {
-          if ((uintRand() & temp) == temp) {
-            node_prob_prev = parent;
-            node_prob_cur = node;
-          }
-        }
-        temp>>=1;*/
         RT_ASSERT(path_size < MAX_DEPTH);
+        if(node->fixed==1){
+          num_fixed++;
+        }
         path[path_size++] = node;
 
         int pos = PREDICT_POS(node, key);
@@ -410,123 +400,149 @@ public:
           }
         }
       }
-
-      return ret;
-      //Probability Rebuild Begin
-
-      /*Node *node_prob_prev = nullptr;
+      if (true) {
+        return ret;
+      }
+      if (likely(path_size<=13||path_size-num_fixed<=3)) {
+        return ret;
+      }
+      auto temp = getGen()();
+      /*if(pq_distribution(getGen())){
+        pq_trigger=true;
+        cur_time = time(0);
+      }*/
+      int mask = 0xffff;
+      if (likely((temp & mask) != (path[path_size-1]->build_time&mask))) {
+        return ret;
+      }
+      long cur_time = 0;
+      Node *node_prob_prev = nullptr;
       Node *node_prob_cur = nullptr;
-
-      *//*uint32_t temp=uintRand();
-      auto &p = p_array[path_size];
-      for (int i = 0; i < path_size - 1; i++) {
-        Node *node = path[i];
-        if (node->fixed == 0) {
-          if ((temp & p[i]) == p[i]) {
-            node_prob_prev = i == 0 ? nullptr : path[i - 1];
+      bool pq_trigger = true;
+      cur_time = time(0);
+      std::cout << "asgfag" << std::endl;
+      if (unlikely(pq_trigger)) {
+        std::cout << "aaasdfafawg" << std::endl;
+        for (int i = 0; i < path_size-1; i++) {
+          Node *node = path[i];
+          if (node->fixed == 0 && node->last_adjust_type == 1 &&
+            node->build_time != cur_time) {
+          //epsilon=0.0001
+          long double p_acc = (node->speed * (cur_time - node->build_time) + 0.0001) / node->build_size;
+          if (p_acc >= 1) {
+            node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
             node_prob_cur = node;
             break;
+          } else {
+            std::bernoulli_distribution acc_distribution(p_acc);
+            if (acc_distribution(getGen())) {
+              node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
+              node_prob_cur = node;
+              std::cout << "+++++++++++++++ " << p_acc << std::endl;
+              break;
+            }
           }
         }
-      }*//*
-      auto &d = d_array[path_size];
-      int nodeIdx = d(getGen());
-      if (nodeIdx != 0) {
-        node_prob_cur = path[nodeIdx - 1];
-        if (node_prob_cur->fixed == 1) {
-          node_prob_cur = nullptr;
         }
-        node_prob_prev = nodeIdx == 1 ? nullptr : path[nodeIdx - 2];
+
+      }
+      /*if (path[path_size - 1] == node_prob_cur) {
+        return ret;
+      }*/
+      if(likely(node_prob_cur== nullptr)){
+        return ret;
+      }
+      num_read_probability_trigger++;
+      int prev_size = node_prob_cur->build_size;
+      long prev_build_time = node_prob_cur->build_time;
+      // const int ESIZE = node->size; //race here
+      // T *keys = new T[ESIZE];
+      // P *values = new P[ESIZE];
+      std::vector <T> *keys;   // make it be a ptr here because we will let scan_and_destroy
+      // to decide the size after getting the locks
+      std::vector <P> *values; // scan_and_destroy will fill up the keys/values
+
+#if COLLECT_TIME
+      auto start_time_scan = std::chrono::high_resolution_clock::now();
+#endif
+
+      int numKeysCollected = scan_and_destory_tree(
+          node_prob_cur, &keys, &values); // pass the (address) of the ptr
+      if (numKeysCollected < 0) {
+        for (int x = 0; x < numKeysCollected; x++) {
+          delete keys; // keys[x] stores keys
+          delete values;
+        }
+        RT_DEBUG("collectKey for adjusting node %p -- one Xlock fails; quit "
+                 "rebuild",
+                 node);; // give up rebuild on this node (most likely other threads have
+        // done it for you already)
+        return ret;
+      }
+#if COLLECT_TIME
+      auto end_time_scan = std::chrono::high_resolution_clock::now();
+    auto duration_scan = end_time_scan - start_time_scan;
+    stats.time_scan_and_destory_tree +=
+        std::chrono::duration_cast<std::chrono::nanoseconds>(duration_scan)
+            .count() *
+        1e-9;
+#endif
+
+#if COLLECT_TIME
+      auto start_time_build = std::chrono::high_resolution_clock::now();
+#endif
+      long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time);
+      Node *new_node = build_tree_bulk(keys, values, numKeysCollected, speed, cur_time, 0);
+#if COLLECT_TIME
+      auto end_time_build = std::chrono::high_resolution_clock::now();
+    auto duration_build = end_time_build - start_time_build;
+    stats.time_build_tree_bulk +=
+        std::chrono::duration_cast<std::chrono::nanoseconds>(duration_build)
+            .count() *
+        1e-9;
+#endif
+
+      delete keys;
+      delete values;
+
+      RT_DEBUG(
+          "Final step of adjust, try to update parent/root, new node is %p",
+          node);
+
+      //path[i] = new_node;
+      if (node_prob_prev != nullptr) {
+
+        int retryLockCount = 0;
+        retryLock:
+        if (retryLockCount++)
+          yield(retryLockCount);
+
+        int pos = PREDICT_POS(node_prob_prev, key);
+
+        bool needRetry = false;
+
+        node_prob_prev->items[pos].writeLockOrRestart(needRetry);
+        if (needRetry) {
+          RT_DEBUG("Final step of adjust, obtain parent %p lock FAIL, retry",
+                   path[i - 1]);
+          goto retryLock;
+        }
+        RT_DEBUG("Final step of adjust, obtain parent %p lock OK, now give "
+                 "the adjusted tree to parent",
+                 path[i - 1]);
+        node_prob_prev->items[pos].comp.child = new_node;
+        node_prob_prev->items[pos].writeUnlock();
+        adjustsuccess++;
+        RT_DEBUG("Adjusted success=%d", adjustsuccess);
+      } else { // new node is the root, need to update it
+        root = new_node;
       }
 
-      if (node_prob_cur != nullptr) {
-        num_probability_trigger++;
-        // const int ESIZE = node->size; //race here
-        // T *keys = new T[ESIZE];
-        // P *values = new P[ESIZE];
-        std::vector <T> *keys;   // make it be a ptr here because we will let scan_and_destroy
-        // to decide the size after getting the locks
-        std::vector <P> *values; // scan_and_destroy will fill up the keys/values
-
-#if COLLECT_TIME
-        auto start_time_scan = std::chrono::high_resolution_clock::now();
-#endif
-
-        int numKeysCollected = scan_and_destory_tree(
-            node_prob_cur, &keys, &values); // pass the (address) of the ptr
-        if (numKeysCollected < 0) {
-          for (int x = 0; x < numKeysCollected; x++) {
-            delete keys; // keys[x] stores keys
-            delete values;
-          }
-          RT_DEBUG("collectKey for adjusting node %p -- one Xlock fails; quit "
-                   "rebuild",
-                   node);; // give up rebuild on this node (most likely other threads have
-          // done it for you already)
-          return ret;
-        }
-#if COLLECT_TIME
-        auto end_time_scan = std::chrono::high_resolution_clock::now();
-        auto duration_scan = end_time_scan - start_time_scan;
-        stats.time_scan_and_destory_tree +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(duration_scan)
-                .count() *
-            1e-9;
-#endif
-
-#if COLLECT_TIME
-        auto start_time_build = std::chrono::high_resolution_clock::now();
-#endif
-        Node *new_node = build_tree_bulk(keys, values, numKeysCollected);
-#if COLLECT_TIME
-        auto end_time_build = std::chrono::high_resolution_clock::now();
-        auto duration_build = end_time_build - start_time_build;
-        stats.time_build_tree_bulk +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(duration_build)
-                .count() *
-            1e-9;
-#endif
-
-        delete keys;
-        delete values;
-
-        RT_DEBUG(
-            "Final step of adjust, try to update parent/root, new node is %p",
-            node);
-
-        //path[i] = new_node;
-        if (node_prob_prev != nullptr) {
-
-          int retryLockCount = 0;
-          retryLock:
-          if (retryLockCount++)
-            yield(retryLockCount);
-
-          int pos = PREDICT_POS(node_prob_prev, key);
-
-          bool needRetry = false;
-
-          node_prob_prev->items[pos].writeLockOrRestart(needRetry);
-          if (needRetry) {
-            RT_DEBUG("Final step of adjust, obtain parent %p lock FAIL, retry",
-                     path[i - 1]);
-            goto retryLock;
-          }
-          RT_DEBUG("Final step of adjust, obtain parent %p lock OK, now give "
-                   "the adjusted tree to parent",
-                   path[i - 1]);
-          node_prob_prev->items[pos].comp.child = new_node;
-          node_prob_prev->items[pos].writeUnlock();
-          adjustsuccess++;
-          RT_DEBUG("Adjusted success=%d", adjustsuccess);
-        } else { // new node is the root, need to update it
-          root = new_node;
-        }
-
-      }        // end REBUILD
-
       //Probability Rebuild End
-      return ret;*/
+
+      return ret;
+
+
     }
 
     bool exists(const T &key) const {
@@ -566,7 +582,7 @@ public:
       if (num_keys == 2) {
         destroy_tree(root);
         root =
-            build_tree_two(vs[0].first, vs[0].second, vs[1].first, vs[1].second, 0.002, time(0));
+            build_tree_two(vs[0].first, vs[0].second, vs[1].first, vs[1].second, 0.002, time(0), 1);
         return;
       }
 
@@ -584,7 +600,7 @@ public:
         (*values)[i] = vs[i].second;
       }
       destroy_tree(root);
-      root = build_tree_bulk(keys, values, num_keys, num_keys/(long double)1000, time(0));
+      root = build_tree_bulk(keys, values, num_keys, num_keys / (long double) 1000, time(0), 1);
       delete keys;
       delete values;
     }
@@ -714,6 +730,11 @@ public:
       return true;
     }
 
+    // Find the minimum `len` keys which are no less than `lower`, returns the number of found keys.
+    int range_query_len(std::pair <T, P> *results, const T &lower, int len) {
+      return range_core_len<false>(results, 0, root, lower, len);
+    }
+
     size_t total_size() const {
       std::stack < Node * > s;
       s.push(root);
@@ -763,7 +784,8 @@ public:
       std::cout << "root build_size = " << std::to_string(root->build_size) << std::endl;
       std::cout << "root num_items = " << std::to_string(root->num_items) << std::endl;
       std::cout << "num_rebuild = " << std::to_string(num_rebuild) << std::endl;
-      std::cout << "num_probability_trigger = " << std::to_string(num_probability_trigger) << std::endl;
+      std::cout << "num_write_probability_trigger = " << std::to_string(num_write_probability_trigger) << std::endl;
+      std::cout << "num_read_probability_trigger = " << std::to_string(num_read_probability_trigger) << std::endl;
       std::cout << "==============================================" << std::endl;
     }
 
@@ -796,6 +818,7 @@ private:
         long double p_acc;
         long build_time;
         long double speed;
+        int last_adjust_type = 1;
     };
 
 
@@ -804,12 +827,16 @@ private:
     std::stack<Node *> pending_two[1024];
 
     std::allocator <Node> node_allocator;
+
     std::vector<long double> probability;
-    std::atomic<long long> num_probability_trigger = 0;
+    std::atomic<long long> num_read_probability_trigger = 0;
+    std::atomic<long long> num_write_probability_trigger = 0;
     std::atomic<long long> num_rebuild = 0;
     uint32_t temp = 0xfffff;
     std::vector <std::vector<uint32_t>> p_array;
     std::vector <std::discrete_distribution<int>> d_array;
+    std::bernoulli_distribution pq_distribution{0};
+    std::bernoulli_distribution rq_distribution{0.00001};
 
     /*uint32_t p_array[17][17] = {
         { 0 },
@@ -837,8 +864,8 @@ private:
       return generator();
     }
 
-    std::mt19937 &getGen() {
-      static thread_local std::mt19937
+    std::minstd_rand &getGen() {
+      static thread_local std::minstd_rand
       generator(time(0));
       return generator;
     }
@@ -887,7 +914,7 @@ private:
     }
 
     /// build a tree with two keys
-    Node *build_tree_two(T key1, P value1, T key2, P value2, long double _speed, long _time) {
+    Node *build_tree_two(T key1, P value1, T key2, P value2, long double _speed, long _time, int _type) {
       if (key1 > key2) {
         std::swap(key1, key2);
         std::swap(value1, value2);
@@ -941,12 +968,14 @@ private:
       node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
       node->build_time = _time;
       node->speed = _speed;
+      node->last_adjust_type = _type;
       return node;
     }
 
     /// bulk build, _keys must be sorted in asc order.
-    Node *build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, long _time) {
-      return build_tree_bulk_fmcd(_keys, _values, _size, _speed, _time);
+    Node *build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, long _time,
+                          int _type) {
+      return build_tree_bulk_fmcd(_keys, _values, _size, _speed, _time, _type);
       /*if (USE_FMCD) {
         return build_tree_bulk_fmcd(_keys, _values, _size);
       } else {
@@ -1072,7 +1101,8 @@ private:
     /// bulk build, _keys must be sorted in asc order.
     /// FMCD method.
     Node *
-    build_tree_bulk_fmcd(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, long _time) {
+    build_tree_bulk_fmcd(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, long _time,
+                         int _type) {
       RT_ASSERT(_size > 1);
 
 
@@ -1100,7 +1130,7 @@ private:
         RT_ASSERT(end - begin >= 2);
         if (end - begin == 2) {
           Node *_ = build_tree_two((*_keys)[begin], (*_values)[begin], (*_keys)[begin + 1],
-                                   (*_values)[begin + 1], speed, _time);
+                                   (*_values)[begin + 1], speed, _time, _type);
           memcpy(node, _, sizeof(Node));
           delete_nodes(_, 1);
         } else {
@@ -1123,6 +1153,7 @@ private:
           node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
           node->build_time = _time;
           node->speed = speed;
+          node->last_adjust_type = _type;
 
           // FMCD method
           // Here the implementation is a little different with Algorithm 1 in our
@@ -1417,7 +1448,7 @@ private:
       //Probability Rebuild Begin
 
       if (node_prob_cur != nullptr) {
-        num_probability_trigger++;
+        num_write_probability_trigger++;
         int prev_size = node_prob_cur->build_size;
         long prev_build_time = node_prob_cur->build_time;
         // const int ESIZE = node->size; //race here
@@ -1461,7 +1492,7 @@ private:
         /*if(speed ==0){
           std::cout<<"speed == 0 size_inc: "<<std::to_string(numKeysCollected - prev_size)<<"time: "<<std::to_string(cur_time - prev_build_time)<<std::endl;
         }*/
-        Node *new_node = build_tree_bulk(keys, values, numKeysCollected, speed, cur_time);
+        Node *new_node = build_tree_bulk(keys, values, numKeysCollected, speed, cur_time, 1);
 #if COLLECT_TIME
         auto end_time_build = std::chrono::high_resolution_clock::now();
         auto duration_build = end_time_build - start_time_build;
@@ -1582,7 +1613,7 @@ private:
           node->items[pos].comp.child =
               build_tree_two(key, value, node->items[pos].comp.data.key,
                              node->items[pos].comp.data.value,
-                             node->speed / node->build_size, time(0));
+                             node->speed / node->build_size, time(0), 1);
           /*if(node->speed / node->build_size==0){
             std::cout<<"speed == 0 origin_speed: "<<node->speed<<"build_size: "<<node->build_size<<std::endl;
           }*/
@@ -1643,6 +1674,7 @@ private:
         return true;
       }
 
+      long cur_time = time(0);
       for (int i = 0; i < path_size; i++) {
         Node *node = path[i];
         if (node->fixed == 0) {
@@ -1650,7 +1682,6 @@ private:
             break;
           }
           if (node->conflict_distribution(getGen())) {
-            long cur_time = time(0);
             //epsilon=0.0001
             long double p_acc = (node->speed * (cur_time - node->build_time) + 0.0001) / node->build_size;
             /*std::cout << "p_conflict " << node->p_conflict << std::endl;
@@ -1782,6 +1813,64 @@ private:
       // return path[0];*/
       return true;
     } // end of insert_tree
+
+    // SATISFY_LOWER = true means all the keys in the subtree of `node` are no less than to `lower`.
+    template<bool SATISFY_LOWER>
+    int range_core_len(std::pair <T, P> *results, int pos, Node *node, const T &lower, int len) {
+      if constexpr(SATISFY_LOWER)
+      {
+        int lower_pos=0;
+        while (lower_pos < node->num_items) {
+          if(node->num_items[lower_pos].entry_type!=0){
+            if (node->items[lower_pos].comp.data.key >= lower) {
+              results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
+              pos++;
+            }else{
+              pos = range_core_len<true>(results, pos, node->items[i].comp.child, lower, len);
+            }
+            if (pos >= len) {
+              return pos;
+            }
+          }
+          lower_pos++;
+        }
+        return pos;
+      } else {
+        int lower_pos = PREDICT_POS(node, lower);
+        if (node->num_items[lower_pos].entry_type!=0) {
+          if (node->num_items[lower_pos].entry_type == 2) {
+            if (node->items[lower_pos].comp.data.key >= lower) {
+              results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
+              pos++;
+            }
+          } else {
+            pos = range_core_len<false>(results, pos, node->items[lower_pos].comp.child, lower, len);
+          }
+          if (pos >= len) {
+            return pos;
+          }
+        }
+        if (lower_pos + 1 >= node->num_items) {
+          return pos;
+        }
+        lower_pos++;
+        while (lower_pos < node->num_items) {
+          if(node->num_items[lower_pos].entry_type!=0){
+            if (node->items[lower_pos].comp.data.key >= lower) {
+              results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
+              pos++;
+            }else{
+              pos = range_core_len<true>(results, pos, node->items[i].comp.child, lower, len);
+            }
+            if (pos >= len) {
+              return pos;
+            }
+          }
+          lower_pos++;
+        }
+        return pos;
+      }
+    }
 
 };
 
