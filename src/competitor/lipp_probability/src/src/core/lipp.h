@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <thread>
 #include <vector>
+#include <unordered_set>
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -256,18 +257,10 @@ public:
 
     typedef std::pair <T, P> V;
 
-    LIPP(double BUILD_LR_REMAIN = 0, bool QUIET = true)
+    LIPP(double BUILD_LR_REMAIN = 0, bool QUIET = false)
         : BUILD_LR_REMAIN(BUILD_LR_REMAIN), QUIET(QUIET) {
       {
         std::cout << "Lipp_Probability" << std::endl;
-        probability.reserve(128);
-        probability.push_back(1 / pow((long double) 2, (long double) 8));
-        for (int i = 1; i < 8; i++) {
-          probability.push_back(probability[i - 1] * 2);
-        }
-        for (int i = 8; i < 128; i++) {
-          probability.push_back(1);
-        }
         std::vector < Node * > nodes;
         for (int _ = 0; _ < 1e7; _++) {
           Node *node = build_tree_two(T(0), P(), T(1), P(), 0, 0, 1);
@@ -333,6 +326,7 @@ public:
 
     ~LIPP() {
       std::cout << "Lipp_Probability Destruct." << std::endl;
+      print_depth();
       destroy_tree(root);
       root = NULL;
       destory_pending();
@@ -362,11 +356,11 @@ public:
       constexpr int MAX_DEPTH = 128;
       Node *path[MAX_DEPTH];
       int path_size = 0;
-      int num_fixed=0;
+      int num_fixed = 0;
       bool ret = false;
       for (Node *node = root;;) {
         RT_ASSERT(path_size < MAX_DEPTH);
-        if(node->fixed==1){
+        if (node->fixed == 1) {
           num_fixed++;
         }
         path[path_size++] = node;
@@ -403,7 +397,7 @@ public:
       if (true) {
         return ret;
       }
-      if (likely(path_size<=13||path_size-num_fixed<=3)) {
+      if (likely(path_size <= 13 || path_size - num_fixed <= 3)) {
         return ret;
       }
       auto temp = getGen()();
@@ -412,49 +406,49 @@ public:
         cur_time = time(0);
       }*/
       int mask = 0xffff;
-      if (likely((temp & mask) != (path[path_size-1]->build_time&mask))) {
+      if (likely((temp & mask) != (path[path_size - 1]->build_time & mask))) {
         return ret;
       }
-      long cur_time = 0;
+      uint64_t cur_time = 0;
       Node *node_prob_prev = nullptr;
       Node *node_prob_cur = nullptr;
       bool pq_trigger = true;
-      cur_time = time(0);
+      cur_time = timeSinceEpochNanosec();
       std::cout << "asgfag" << std::endl;
       if (unlikely(pq_trigger)) {
         std::cout << "aaasdfafawg" << std::endl;
-        for (int i = 0; i < path_size-1; i++) {
+        for (int i = 0; i < path_size - 1; i++) {
           Node *node = path[i];
           if (node->fixed == 0 && node->last_adjust_type == 1 &&
-            node->build_time != cur_time) {
-          //epsilon=0.0001
-          long double p_acc = (node->speed * (cur_time - node->build_time) + 0.0001) / node->build_size;
-          if (p_acc >= 1) {
-            node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
-            node_prob_cur = node;
-            break;
-          } else {
-            std::bernoulli_distribution acc_distribution(p_acc);
-            if (acc_distribution(getGen())) {
+              node->build_time != cur_time) {
+            //epsilon=0.0001
+            long double p_acc = (node->speed * (cur_time - node->build_time) + 0.0001) / node->build_size;
+            if (p_acc >= 1) {
               node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
               node_prob_cur = node;
-              std::cout << "+++++++++++++++ " << p_acc << std::endl;
               break;
+            } else {
+              std::bernoulli_distribution acc_distribution(p_acc);
+              if (acc_distribution(getGen())) {
+                node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
+                node_prob_cur = node;
+                std::cout << "+++++++++++++++ " << p_acc << std::endl;
+                break;
+              }
             }
           }
-        }
         }
 
       }
       /*if (path[path_size - 1] == node_prob_cur) {
         return ret;
       }*/
-      if(likely(node_prob_cur== nullptr)){
+      if (likely(node_prob_cur == nullptr)) {
         return ret;
       }
       num_read_probability_trigger++;
       int prev_size = node_prob_cur->build_size;
-      long prev_build_time = node_prob_cur->build_time;
+      uint64_t prev_build_time = node_prob_cur->build_time;
       // const int ESIZE = node->size; //race here
       // T *keys = new T[ESIZE];
       // P *values = new P[ESIZE];
@@ -582,7 +576,7 @@ public:
       if (num_keys == 2) {
         destroy_tree(root);
         root =
-            build_tree_two(vs[0].first, vs[0].second, vs[1].first, vs[1].second, 0.002, time(0), 1);
+            build_tree_two(vs[0].first, vs[0].second, vs[1].first, vs[1].second, 0.002, timeSinceEpochNanosec(), 1);
         return;
       }
 
@@ -600,7 +594,7 @@ public:
         (*values)[i] = vs[i].second;
       }
       destroy_tree(root);
-      root = build_tree_bulk(keys, values, num_keys, num_keys / (long double) 1000, time(0), 1);
+      root = build_tree_bulk(keys, values, num_keys, num_keys / (long double) 1000, timeSinceEpochNanosec(), 1);
       delete keys;
       delete values;
     }
@@ -816,7 +810,7 @@ private:
         long double p_conflict;
         std::bernoulli_distribution conflict_distribution;
         long double p_acc;
-        long build_time;
+        uint64_t build_time;
         long double speed;
         int last_adjust_type = 1;
     };
@@ -828,7 +822,6 @@ private:
 
     std::allocator <Node> node_allocator;
 
-    std::vector<long double> probability;
     std::atomic<long long> num_read_probability_trigger = 0;
     std::atomic<long long> num_write_probability_trigger = 0;
     std::atomic<long long> num_rebuild = 0;
@@ -868,6 +861,11 @@ private:
       static thread_local std::minstd_rand
       generator(time(0));
       return generator;
+    }
+
+    uint64_t timeSinceEpochNanosec() {
+      using namespace std::chrono;
+      return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
     }
 
     Node *new_nodes(int n) {
@@ -910,6 +908,12 @@ private:
       node->model.a = node->model.b = 0;
       node->items = new_items(1);
       node->items[0].entry_type = 0;
+
+      node->p_conflict = 1 / (0.1 * 2 * 8);
+      node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
+      node->build_time = timeSinceEpochNanosec();
+      node->speed = 10;
+      node->last_adjust_type = 1;
       return node;
     }
 
@@ -964,7 +968,7 @@ private:
         node->items[pos].comp.data.value = value2;
       }
       //prob
-      node->p_conflict = 1 / (0.1 * 2 * 64);
+      node->p_conflict = 1 / (0.1 * 1 * 64);
       node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
       node->build_time = _time;
       node->speed = _speed;
@@ -973,8 +977,9 @@ private:
     }
 
     /// bulk build, _keys must be sorted in asc order.
-    Node *build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, long _time,
-                          int _type) {
+    Node *
+    build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, uint64_t _time,
+                    int _type) {
       return build_tree_bulk_fmcd(_keys, _values, _size, _speed, _time, _type);
       /*if (USE_FMCD) {
         return build_tree_bulk_fmcd(_keys, _values, _size);
@@ -1101,7 +1106,8 @@ private:
     /// bulk build, _keys must be sorted in asc order.
     /// FMCD method.
     Node *
-    build_tree_bulk_fmcd(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, long _time,
+    build_tree_bulk_fmcd(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed,
+                         uint64_t _time,
                          int _type) {
       RT_ASSERT(_size > 1);
 
@@ -1281,15 +1287,25 @@ private:
     }
 
     void destory_pending() {
+      std::unordered_set<Node*> s;
       for (int i = 0; i < 1024; ++i) {
         while (!pending_two[i].empty()) {
           Node *node = pending_two[i].top();
           pending_two[i].pop();
-
+          if(s.find(node)!=s.end()){
+            std::cout<<" sssssssssssssss "<<node->num_items<<std::endl;
+          }else
+            s.insert(node);
           delete_items(node->items, node->num_items);
           delete_nodes(node, 1);
         }
       }
+      //std::cout<<" aaaaaaaaaaaa "<<s.size()<<std::endl;
+      /*for(auto *node:s){
+        delete_items(node->items, node->num_items);
+        delete_nodes(node, 1);
+      }*/
+
     }
 
     void destroy_tree(Node *root) {
@@ -1384,7 +1400,7 @@ private:
       dfs(_subroot, *keys, *values);
 
       const int ESIZE = (*keys)->size();
-      std::cout << "dfs ESIZE" << std::to_string(ESIZE) << std::endl;
+      std::cout << "dfs ESIZE: " << std::to_string(ESIZE) << std::endl;
 
       /*while (!s.empty()) {
         int begin = s.top().first;
@@ -1450,7 +1466,7 @@ private:
       if (node_prob_cur != nullptr) {
         num_write_probability_trigger++;
         int prev_size = node_prob_cur->build_size;
-        long prev_build_time = node_prob_cur->build_time;
+        uint64_t prev_build_time = node_prob_cur->build_time;
         // const int ESIZE = node->size; //race here
         // T *keys = new T[ESIZE];
         // P *values = new P[ESIZE];
@@ -1487,8 +1503,10 @@ private:
 #if COLLECT_TIME
         auto start_time_build = std::chrono::high_resolution_clock::now();
 #endif
-        long cur_time = time(0);
+        uint64_t cur_time = timeSinceEpochNanosec();
         long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time);
+        std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "
+                  << std::to_string(cur_time - prev_build_time) << std::endl;
         /*if(speed ==0){
           std::cout<<"speed == 0 size_inc: "<<std::to_string(numKeysCollected - prev_size)<<"time: "<<std::to_string(cur_time - prev_build_time)<<std::endl;
         }*/
@@ -1613,7 +1631,7 @@ private:
           node->items[pos].comp.child =
               build_tree_two(key, value, node->items[pos].comp.data.key,
                              node->items[pos].comp.data.value,
-                             node->speed / node->build_size, time(0), 1);
+                             node->speed / node->build_size, timeSinceEpochNanosec(), 1);
           /*if(node->speed / node->build_size==0){
             std::cout<<"speed == 0 origin_speed: "<<node->speed<<"build_size: "<<node->build_size<<std::endl;
           }*/
@@ -1674,25 +1692,21 @@ private:
         return true;
       }
 
-      long cur_time = time(0);
-      for (int i = 0; i < path_size; i++) {
+      uint64_t cur_time = timeSinceEpochNanosec();
+
+      for (int i = 0; i < path_size - 1; i++) {
         Node *node = path[i];
         if (node->fixed == 0) {
-          if (i == path_size - 1 && node->num_items <= 8) {
-            break;
-          }
           if (node->conflict_distribution(getGen())) {
-            //epsilon=0.0001
-            long double p_acc = (node->speed * (cur_time - node->build_time) + 0.0001) / node->build_size;
+            //epsilon=0.001
+
+            long double p_acc = (node->speed * (cur_time - node->build_time) + path_size/(long double)1000) / (node->build_size + 1)+0.5;
             /*std::cout << "p_conflict " << node->p_conflict << std::endl;
             std::cout << "node->speed " << node->speed << std::endl;
             std::cout << "cur_time " << cur_time << std::endl;
             std::cout << "node->build_time " << node->build_time << std::endl;
             std::cout << "node->build_size " << node->build_size << std::endl;
             std::cout << "p_acc " << p_acc << std::endl;*/
-            if (cur_time == node->build_time) {
-              break;
-            }
             if (p_acc >= 1) {
               node_prob_prev = i == 0 ? nullptr : path[i - 1];
               node_prob_cur = node;
@@ -1819,14 +1833,14 @@ private:
     int range_core_len(std::pair <T, P> *results, int pos, Node *node, const T &lower, int len) {
       if constexpr(SATISFY_LOWER)
       {
-        int lower_pos=0;
+        int lower_pos = 0;
         while (lower_pos < node->num_items) {
-          if(node->num_items[lower_pos].entry_type!=0){
+          if (node->items[lower_pos].entry_type != 0) {
             if (node->items[lower_pos].comp.data.key >= lower) {
               results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
               pos++;
-            }else{
-              pos = range_core_len<true>(results, pos, node->items[i].comp.child, lower, len);
+            } else {
+              pos = range_core_len < true > (results, pos, node->items[lower_pos].comp.child, lower, len);
             }
             if (pos >= len) {
               return pos;
@@ -1837,14 +1851,14 @@ private:
         return pos;
       } else {
         int lower_pos = PREDICT_POS(node, lower);
-        if (node->num_items[lower_pos].entry_type!=0) {
-          if (node->num_items[lower_pos].entry_type == 2) {
+        if (node->items[lower_pos].entry_type != 0) {
+          if (node->items[lower_pos].entry_type == 2) {
             if (node->items[lower_pos].comp.data.key >= lower) {
               results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
               pos++;
             }
           } else {
-            pos = range_core_len<false>(results, pos, node->items[lower_pos].comp.child, lower, len);
+            pos = range_core_len < false > (results, pos, node->items[lower_pos].comp.child, lower, len);
           }
           if (pos >= len) {
             return pos;
@@ -1855,12 +1869,12 @@ private:
         }
         lower_pos++;
         while (lower_pos < node->num_items) {
-          if(node->num_items[lower_pos].entry_type!=0){
+          if (node->items[lower_pos].entry_type != 0) {
             if (node->items[lower_pos].comp.data.key >= lower) {
               results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
               pos++;
-            }else{
-              pos = range_core_len<true>(results, pos, node->items[i].comp.child, lower, len);
+            } else {
+              pos = range_core_len < true > (results, pos, node->items[lower_pos].comp.child, lower, len);
             }
             if (pos >= len) {
               return pos;

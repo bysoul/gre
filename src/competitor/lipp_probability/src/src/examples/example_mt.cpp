@@ -16,6 +16,7 @@ int main() {
   for (int i = 0; i < key_num; i++) {
     // keys[i] = {i, i};
     // printf("Thread %d insert(%d)\n", omp_get_thread_num(), i);
+    //std::cout<<i<<std::endl;
     lipp.insert(i, i);
     // mix write with read
     // if (i>5)
@@ -24,6 +25,11 @@ int main() {
   }
   // printf("bulk loading\n");
   // lipp.bulk_load(keys, key_num);
+  std::pair <int, int> *result = new std::pair <int, int>[200];
+  int ret=lipp.range_query_len(result, 457, 5);
+  for(int i=0;i<ret;i++){
+    std::cout<<"scan "<<result[i].first<<" "<<result[i].second<<std::endl;
+  }
 
   printf("start\n");
 
