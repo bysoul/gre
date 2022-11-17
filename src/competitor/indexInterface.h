@@ -40,4 +40,6 @@ public:
   virtual long long memory_consumption() = 0; // bytes
 
   virtual void print(Param *param = nullptr){};
+
+  virtual ~indexInterface(){};
 };

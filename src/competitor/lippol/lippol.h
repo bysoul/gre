@@ -4,6 +4,8 @@
 template<class KEY_TYPE, class PAYLOAD_TYPE>
 class LIPPOLInterface : public indexInterface<KEY_TYPE, PAYLOAD_TYPE> {
 public:
+    ~LIPPOLInterface(){
+    }
     void init(Param *param = nullptr) {}
 
     void bulk_load(std::pair <KEY_TYPE, PAYLOAD_TYPE> *key_value, size_t num, Param *param = nullptr);
@@ -21,7 +23,8 @@ public:
 
     long long memory_consumption() { return lipp.total_size(); }
 
-    void print(Param *param = nullptr){ lipp.print_depth();}
+    void print(Param *param = nullptr){ //lipp.print_depth();
+      }
 
 private:
     lippolc::LIPP<KEY_TYPE, PAYLOAD_TYPE> lipp;

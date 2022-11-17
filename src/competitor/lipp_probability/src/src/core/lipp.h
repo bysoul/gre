@@ -197,14 +197,13 @@ public:
         tbb::ets_key_per_instance>
             mThreadSpecificInformations;
 
-    private:
         EpochBasedMemoryReclamationStrategy(LIPP<T, P> *index)
             : mCurrentEpoch(0), mThreadSpecificInformations(index) {}
 
     public:
         static EpochBasedMemoryReclamationStrategy *getInstance(LIPP<T, P> *index) {
-          static EpochBasedMemoryReclamationStrategy instance(index);
-          return &instance;
+
+          return index->ebr;
         }
 
         void enterCriticalSection() {
@@ -321,15 +320,15 @@ public:
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 10, 5, 4, 3, 2, 2, 1, 0});
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 40, 10, 5, 4, 3, 2, 2, 1, 0});
 
-      ebr = EpochBasedMemoryReclamationStrategy::getInstance(this);
+      ebr = initEbrInstance(this);
     }
 
     ~LIPP() {
       std::cout << "Lipp_Probability Destruct." << std::endl;
-      print_depth();
       destroy_tree(root);
       root = NULL;
       destory_pending();
+      delete ebr;
     }
 
     void insert(const V &v) { insert(v.first, v.second); }
@@ -394,12 +393,15 @@ public:
           }
         }
       }
-      if (true) {
+      /*if (true) {
+        return ret;
+      }*/
+      if (likely(path_size - num_fixed <= 3)) {
         return ret;
       }
-      if (likely(path_size <= 13 || path_size - num_fixed <= 3)) {
+      /*if (likely(path_size <= 100)) {
         return ret;
-      }
+      }*/
       auto temp = getGen()();
       /*if(pq_distribution(getGen())){
         pq_trigger=true;
@@ -414,9 +416,7 @@ public:
       Node *node_prob_cur = nullptr;
       bool pq_trigger = true;
       cur_time = timeSinceEpochNanosec();
-      std::cout << "asgfag" << std::endl;
-      if (unlikely(pq_trigger)) {
-        std::cout << "aaasdfafawg" << std::endl;
+      if (pq_trigger) {
         for (int i = 0; i < path_size - 1; i++) {
           Node *node = path[i];
           if (node->fixed == 0 && node->last_adjust_type == 1 &&
@@ -424,15 +424,17 @@ public:
             //epsilon=0.0001
             long double p_acc = (node->speed * (cur_time - node->build_time) + 0.0001) / node->build_size;
             if (p_acc >= 1) {
-              node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
+              node_prob_prev = i == 0 ? nullptr : path[i - 1];
               node_prob_cur = node;
+              /*std::cout << "+++++++++++++++ " << p_acc << std::endl;
+              std::cout << "+++++++++++++++ " << node->speed << std::endl;*/
               break;
             } else {
               std::bernoulli_distribution acc_distribution(p_acc);
               if (acc_distribution(getGen())) {
-                node_prob_prev = path_size == 1 ? nullptr : path[path_size - 2];
+                node_prob_prev = i == 0 ? nullptr : path[i - 1];
                 node_prob_cur = node;
-                std::cout << "+++++++++++++++ " << p_acc << std::endl;
+                //std::cout << "+++++++++++++++ " << p_acc << std::endl;
                 break;
               }
             }
@@ -526,7 +528,6 @@ public:
                  path[i - 1]);
         node_prob_prev->items[pos].comp.child = new_node;
         node_prob_prev->items[pos].writeUnlock();
-        adjustsuccess++;
         RT_DEBUG("Adjusted success=%d", adjustsuccess);
       } else { // new node is the root, need to update it
         root = new_node;
@@ -576,7 +577,7 @@ public:
       if (num_keys == 2) {
         destroy_tree(root);
         root =
-            build_tree_two(vs[0].first, vs[0].second, vs[1].first, vs[1].second, 0.002, timeSinceEpochNanosec(), 1);
+            build_tree_two(vs[0].first, vs[0].second, vs[1].first, vs[1].second, 0.001, timeSinceEpochNanosec(), 1);
         return;
       }
 
@@ -594,7 +595,7 @@ public:
         (*values)[i] = vs[i].second;
       }
       destroy_tree(root);
-      root = build_tree_bulk(keys, values, num_keys, num_keys / (long double) 1000, timeSinceEpochNanosec(), 1);
+      root = build_tree_bulk(keys, values, num_keys, 0.001, timeSinceEpochNanosec(), 1);
       delete keys;
       delete values;
     }
@@ -868,6 +869,11 @@ private:
       return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
     }
 
+    EpochBasedMemoryReclamationStrategy *initEbrInstance(LIPP<T, P> *index) {
+      ebr=new EpochBasedMemoryReclamationStrategy(index);
+      return ebr;
+    }
+
     Node *new_nodes(int n) {
       Node *p = node_allocator.allocate(n);
       RT_ASSERT(p != NULL && p != (Node *) (-1));
@@ -909,10 +915,10 @@ private:
       node->items = new_items(1);
       node->items[0].entry_type = 0;
 
-      node->p_conflict = 1 / (0.1 * 2 * 8);
+      node->p_conflict = 1 / (0.1 * 2 * 64);
       node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
       node->build_time = timeSinceEpochNanosec();
-      node->speed = 10;
+      node->speed = 0.001;
       node->last_adjust_type = 1;
       return node;
     }
@@ -968,7 +974,7 @@ private:
         node->items[pos].comp.data.value = value2;
       }
       //prob
-      node->p_conflict = 1 / (0.1 * 1 * 64);
+      node->p_conflict = 1 / (0.1 * 2 * 64);
       node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
       node->build_time = _time;
       node->speed = _speed;
@@ -1123,7 +1129,6 @@ private:
 
       Node *ret = new_nodes(1);
       s.push((Segment) {0, _size, 1, ret, _speed});
-      //std::cout << "======================" << _size << std::endl;
 
       while (!s.empty()) {
         const int begin = s.top().begin;
@@ -1287,14 +1292,14 @@ private:
     }
 
     void destory_pending() {
-      std::unordered_set<Node*> s;
+      std::unordered_set < Node * > s;
       for (int i = 0; i < 1024; ++i) {
         while (!pending_two[i].empty()) {
           Node *node = pending_two[i].top();
           pending_two[i].pop();
-          if(s.find(node)!=s.end()){
-            std::cout<<" sssssssssssssss "<<node->num_items<<std::endl;
-          }else
+          if (s.find(node) != s.end()) {
+            printf("Error: destory_pending dup node %p",node);
+          } else
             s.insert(node);
           delete_items(node->items, node->num_items);
           delete_nodes(node, 1);
@@ -1400,7 +1405,7 @@ private:
       dfs(_subroot, *keys, *values);
 
       const int ESIZE = (*keys)->size();
-      std::cout << "dfs ESIZE: " << std::to_string(ESIZE) << std::endl;
+      //std::cout << "dfs ESIZE: " << std::to_string(ESIZE) << std::endl;
 
       /*while (!s.empty()) {
         int begin = s.top().first;
@@ -1504,9 +1509,8 @@ private:
         auto start_time_build = std::chrono::high_resolution_clock::now();
 #endif
         uint64_t cur_time = timeSinceEpochNanosec();
-        long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time);
-        std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "
-                  << std::to_string(cur_time - prev_build_time) << std::endl;
+        long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
+        //std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "<< std::to_string(cur_time - prev_build_time) << std::endl;
         /*if(speed ==0){
           std::cout<<"speed == 0 size_inc: "<<std::to_string(numKeysCollected - prev_size)<<"time: "<<std::to_string(cur_time - prev_build_time)<<std::endl;
         }*/
@@ -1699,8 +1703,8 @@ private:
         if (node->fixed == 0) {
           if (node->conflict_distribution(getGen())) {
             //epsilon=0.001
-
-            long double p_acc = (node->speed * (cur_time - node->build_time) + path_size/(long double)1000) / (node->build_size + 1)+0.5;
+            long double p_acc = (node->speed * (cur_time - node->build_time) + (path_size - i) / (long double) 1000) /
+                                (node->build_size + 1);
             /*std::cout << "p_conflict " << node->p_conflict << std::endl;
             std::cout << "node->speed " << node->speed << std::endl;
             std::cout << "cur_time " << cur_time << std::endl;
@@ -1716,8 +1720,8 @@ private:
             if (acc_distribution(getGen())) {
               node_prob_prev = i == 0 ? nullptr : path[i - 1];
               node_prob_cur = node;
-              std::cout << "p_conflict " << node->p_conflict << std::endl;
-              std::cout << "============================= " << p_acc << std::endl;
+              //std::cout << "p_conflict " << node->p_conflict << std::endl;
+              //std::cout << "============================= " << p_acc << std::endl;
               break;
             }
           }

@@ -23,6 +23,7 @@
 #include "../competitor/indexInterface.h"
 #include "pgm_metric.h"
 #include <jemalloc/jemalloc.h>
+#include "perf_event.h"
 
 template<typename KEY_TYPE, typename PAYLOAD_TYPE>
 class Benchmark {
@@ -336,14 +337,14 @@ public:
 
           if (op == READ) {  // get
             auto ret = index->get(key, val, &paramI);
-            if (!ret) {
+            /*if (!ret) {
               printf("read not found, Key %lu\n", key);
               continue;
             }
             if (val != key) {
               printf("read failed, Key %lu, val %llu\n", key, val);
               exit(1);
-            }
+            }*/
             thread_param.success_read += ret;
           } else if (op == INSERT) {  // insert
             auto ret = index->put(key, key, &paramI);
@@ -403,7 +404,6 @@ public:
         stat.memory_consumption = index->memory_consumption();
 
       index->print();
-      delete index;
       print_stat();
 
       delete[] thread_array;
@@ -524,8 +524,13 @@ public:
           index_type = s;
           index_t *index;
           prepare(index, keys);
+
+          // perf
+          /*BenchmarkParameters paramsP;
+          paramsP.setParam("type","origin");
+          PerfEventBlock e(operations_num/thread_num,paramsP);*/
           run(index);
-          //if (index != nullptr) delete index;
+          delete index;
         }
       }
     }
