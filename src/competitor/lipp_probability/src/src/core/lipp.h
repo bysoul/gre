@@ -393,12 +393,12 @@ public:
           }
         }
       }
-      /*if (true) {
-        return ret;
-      }*/
-      if (likely(path_size - num_fixed <= 3)) {
+      if (true) {
         return ret;
       }
+      /*if (likely(path_size - num_fixed <= 3)) {
+        return ret;
+      }*/
       /*if (likely(path_size <= 100)) {
         return ret;
       }*/
@@ -642,10 +642,10 @@ public:
 
           node->items[pos].writeUnlock();
 
-          for (int i = 0; i < path_size; i++) {
+          /*for (int i = 0; i < path_size; i++) {
             path[i]->size--;
-          }
-          if (node->size == 0) {
+          }*/
+          /*if (node->size == 0) {
             int parent_pos = PREDICT_POS(parent, key);
             restartCount = 0;
             deleteNodeRemove:
@@ -661,7 +661,7 @@ public:
 
             safe_delete_nodes(node, 1);
 
-          }
+          }*/
           return true;
         } else // 1 means has a child, need to go down and see
         {
@@ -781,6 +781,7 @@ public:
       std::cout << "num_rebuild = " << std::to_string(num_rebuild) << std::endl;
       std::cout << "num_write_probability_trigger = " << std::to_string(num_write_probability_trigger) << std::endl;
       std::cout << "num_read_probability_trigger = " << std::to_string(num_read_probability_trigger) << std::endl;
+      std::cout << "num_lower_64 = " << std::to_string(num_lower_64) << std::endl;
       std::cout << "==============================================" << std::endl;
     }
 
@@ -825,6 +826,7 @@ private:
 
     std::atomic<long long> num_read_probability_trigger = 0;
     std::atomic<long long> num_write_probability_trigger = 0;
+    std::atomic<long long> num_lower_64=0;
     std::atomic<long long> num_rebuild = 0;
     uint32_t temp = 0xfffff;
     std::vector <std::vector<uint32_t>> p_array;
@@ -1370,6 +1372,7 @@ private:
 
       bfs.push_back(_subroot);
       bool needRestart = false;
+      int count=0;
 
       while (!bfs.empty()) {
         Node *node = bfs.front();
@@ -1378,6 +1381,7 @@ private:
         for (int i = 0; i < node->num_items;
              i++) { // the i-th entry of the node now
           node->items[i].writeLockOrRestart(needRestart);
+
           if (needRestart) {
             // release locks on all locked items
             for (auto &n: lockedItems) {
@@ -1387,12 +1391,20 @@ private:
           }
           lockedItems.push_back(&(node->items[i]));
 
-          if (node->items[i].entry_type == 1) { // child
+          if(node->items[i].entry_type == 2){
+            count++;
+          }else if (node->items[i].entry_type == 1) { // child
             bfs.push_back(node->items[i].comp.child);
           }
         }
       } // end while
 
+      /*if(count<64){
+        for (auto &n: lockedItems) {
+          n->writeUnlock();
+        }
+        return -1;
+      }*/
       /*typedef std::pair<int, Node *> Segment; // <begin, Node*>
       std::stack <Segment> s;
       s.push(Segment(0, _subroot));*/
@@ -1508,6 +1520,9 @@ private:
 #if COLLECT_TIME
         auto start_time_build = std::chrono::high_resolution_clock::now();
 #endif
+        if(numKeysCollected<64){
+          num_lower_64++;
+        }
         uint64_t cur_time = timeSinceEpochNanosec();
         long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
         //std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "<< std::to_string(cur_time - prev_build_time) << std::endl;
@@ -1692,7 +1707,7 @@ private:
         node_prob_prev = nodeIdx == 1 ? nullptr : path[nodeIdx - 2];
       }*/
 
-      if (conflict_flag) {
+      if (!conflict_flag) {
         return true;
       }
 
@@ -1731,104 +1746,6 @@ private:
       if (node_prob_cur != nullptr)
         prob_rebuild(node_prob_prev, node_prob_cur, key);
 
-      /*for (int i = 0; i < path_size; i++) {
-        Node *node = path[i];
-        const int num_inserts = node->num_inserts;
-        const int num_insert_to_data = node->num_insert_to_data;
-        const bool need_rebuild =
-            node->fixed == 0 && node->size >= node->build_size * 2 &&
-            node->size >= 64 && num_insert_to_data * 10 >= num_inserts;
-
-        if (need_rebuild) {
-          num_rebuild++;
-
-          // const int ESIZE = node->size; //race here
-          // T *keys = new T[ESIZE];
-          // P *values = new P[ESIZE];
-          T *keys;   // make it be a ptr here because we will let scan_and_destroy
-          // to decide the size after getting the locks
-          P *values; // scan_and_destroy will fill up the keys/values
-
-  #if COLLECT_TIME
-          auto start_time_scan = std::chrono::high_resolution_clock::now();
-  #endif
-
-          int numKeysCollected = scan_and_destory_tree(
-              node, &keys, &values); // pass the (address) of the ptr
-          if (numKeysCollected < 0) {
-            for (int x = 0; x < numKeysCollected; x++) {
-              delete &keys[x]; // keys[x] stores keys
-              delete &values[x];
-            }
-            RT_DEBUG("collectKey for adjusting node %p -- one Xlock fails; quit "
-                     "rebuild",
-                     node);
-            break; // give up rebuild on this node (most likely other threads have
-            // done it for you already)
-          }
-  #if COLLECT_TIME
-          auto end_time_scan = std::chrono::high_resolution_clock::now();
-          auto duration_scan = end_time_scan - start_time_scan;
-          stats.time_scan_and_destory_tree +=
-              std::chrono::duration_cast<std::chrono::nanoseconds>(duration_scan)
-                  .count() *
-              1e-9;
-  #endif
-
-  #if COLLECT_TIME
-          auto start_time_build = std::chrono::high_resolution_clock::now();
-  #endif
-          Node *new_node = build_tree_bulk(keys, values, numKeysCollected);
-  #if COLLECT_TIME
-          auto end_time_build = std::chrono::high_resolution_clock::now();
-          auto duration_build = end_time_build - start_time_build;
-          stats.time_build_tree_bulk +=
-              std::chrono::duration_cast<std::chrono::nanoseconds>(duration_build)
-                  .count() *
-              1e-9;
-  #endif
-
-          delete[] keys;
-          delete[] values;
-
-          RT_DEBUG(
-              "Final step of adjust, try to update parent/root, new node is %p",
-              node);
-
-          path[i] = new_node;
-          if (i > 0) {
-
-            int retryLockCount = 0;
-            retryLock:
-            if (retryLockCount++)
-              yield(retryLockCount);
-
-            int pos = PREDICT_POS(path[i - 1], key);
-
-            bool needRetry = false;
-
-            path[i - 1]->items[pos].writeLockOrRestart(needRetry);
-            if (needRetry) {
-              RT_DEBUG("Final step of adjust, obtain parent %p lock FAIL, retry",
-                       path[i - 1]);
-              goto retryLock;
-            }
-            RT_DEBUG("Final step of adjust, obtain parent %p lock OK, now give "
-                     "the adjusted tree to parent",
-                     path[i - 1]);
-            path[i - 1]->items[pos].comp.child = new_node;
-            path[i - 1]->items[pos].writeUnlock();
-            adjustsuccess++;
-            RT_DEBUG("Adjusted success=%d", adjustsuccess);
-          } else { // new node is the root, need to update it
-            root = new_node;
-          }
-
-          break; // break out for the for loop
-        }        // end REBUILD
-      }          // end for
-
-      // return path[0];*/
       return true;
     } // end of insert_tree
 
@@ -1854,16 +1771,36 @@ private:
         }
         return pos;
       } else {
+
+        EpochGuard guard(this);
+        int restartCount = 0;
+        restart:
+        if (restartCount++)
+          yield(restartCount);
+        bool needRestart = false;
+
+        // for lock coupling
+        uint64_t versionItem;
+
         int lower_pos = PREDICT_POS(node, lower);
+
+        versionItem = node->items[lower_pos].readLockOrRestart(needRestart);
+        if (needRestart)
+          goto restart;
+
         if (node->items[lower_pos].entry_type != 0) {
           if (node->items[lower_pos].entry_type == 2) {
             if (node->items[lower_pos].comp.data.key >= lower) {
               results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
               pos++;
             }
+
           } else {
             pos = range_core_len < false > (results, pos, node->items[lower_pos].comp.child, lower, len);
           }
+          node->items[lower_pos].readUnlockOrRestart(versionItem, needRestart);
+          if (needRestart)
+            goto restart;
           if (pos >= len) {
             return pos;
           }

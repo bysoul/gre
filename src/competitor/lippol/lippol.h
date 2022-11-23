@@ -23,7 +23,7 @@ public:
 
     long long memory_consumption() { return lipp.total_size(); }
 
-    void print(Param *param = nullptr){ //lipp.print_depth();
+    void print(Param *param = nullptr){ lipp.print_depth();
       }
 
 private:
