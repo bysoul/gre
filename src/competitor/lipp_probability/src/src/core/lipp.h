@@ -1363,6 +1363,34 @@ private:
       }
     }
 
+    int count_tree_size(Node *_subroot){
+      std::list < Node * > bfs;
+      bfs.push_back(_subroot);
+      int count=0;
+      bool needRestart = false;
+      uint64_t versionItem;
+      while (!bfs.empty()) {
+        Node *node = bfs.front();
+        bfs.pop_front();
+        for (int i = 0; i < node->num_items; i++) {
+          versionItem=node->items[i].readLockOrRestart(needRestart);
+          if (needRestart){
+            return -1;
+          }
+          if (node->items[i].entry_type == 2) {
+            count++;
+          } else if (node->items[i].entry_type == 1) { // child
+            bfs.push_back(node->items[i].comp.child);
+          }
+          node->items[i].readUnlockOrRestart(versionItem, needRestart);
+          if (needRestart){
+            return -1;
+          }
+        }
+      }
+      return count;
+    }
+
     int scan_and_destory_tree(
         Node *_subroot, std::vector <T> **keys, std::vector <P> **values, // keys here is ptr to ptr
         bool destory = true) {
@@ -1372,7 +1400,7 @@ private:
 
       bfs.push_back(_subroot);
       bool needRestart = false;
-      int count=0;
+      //int count=0;
 
       while (!bfs.empty()) {
         Node *node = bfs.front();
@@ -1391,9 +1419,10 @@ private:
           }
           lockedItems.push_back(&(node->items[i]));
 
-          if(node->items[i].entry_type == 2){
+          /*if(node->items[i].entry_type == 2){
             count++;
-          }else if (node->items[i].entry_type == 1) { // child
+          }else */
+          if (node->items[i].entry_type == 1) { // child
             bfs.push_back(node->items[i].comp.child);
           }
         }
@@ -1494,6 +1523,11 @@ private:
 #if COLLECT_TIME
         auto start_time_scan = std::chrono::high_resolution_clock::now();
 #endif
+        if(prev_size<64){
+          if(count_tree_size(node_prob_cur)<64){
+            return;
+          }
+        }
 
         int numKeysCollected = scan_and_destory_tree(
             node_prob_cur, &keys, &values); // pass the (address) of the ptr
