@@ -278,7 +278,7 @@ public:
       }
 
       root = build_tree_none();
-      p_array.push_back({0});
+      /*p_array.push_back({0});
       p_array.push_back({0xffffffff});
       p_array.push_back({0xffffffff, 0xffffffff});
       p_array.push_back({0x3fff, 0x3fff, 0xffffffff});
@@ -300,10 +300,10 @@ public:
            0xffffffff});
       p_array.push_back(
           {0x3fff, 0x1fff, 0x7ff, 0xff, 0, 0x3f, 0x7f, 0x1ff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff,
-           0xffffffff});
+           0xffffffff});*/
 
       int temp = 100000000;
-      d_array.push_back(std::discrete_distribution < int > {temp});
+      /*d_array.push_back(std::discrete_distribution < int > {temp});
       d_array.push_back(std::discrete_distribution < int > {temp, 0});
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 0});
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 0});
@@ -318,7 +318,7 @@ public:
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 10, 5, 4, 3, 2, 2, 1, 0});
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 10, 5, 4, 3, 2, 2, 1, 0});
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 10, 5, 4, 3, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 40, 10, 5, 4, 3, 2, 2, 1, 0});
+      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 40, 10, 5, 4, 3, 2, 2, 1, 0});*/
 
       ebr = initEbrInstance(this);
     }
@@ -353,16 +353,16 @@ public:
       Node *parent = nullptr;
 
       constexpr int MAX_DEPTH = 128;
-      Node *path[MAX_DEPTH];
+      //Node *path[MAX_DEPTH];
       int path_size = 0;
       int num_fixed = 0;
       bool ret = false;
       for (Node *node = root;;) {
-        RT_ASSERT(path_size < MAX_DEPTH);
+        /*RT_ASSERT(path_size < MAX_DEPTH);
         if (node->fixed == 1) {
           num_fixed++;
         }
-        path[path_size++] = node;
+        path[path_size++] = node;*/
 
         int pos = PREDICT_POS(node, key);
         versionItem = node->items[pos].readLockOrRestart(needRestart);
@@ -393,20 +393,19 @@ public:
           }
         }
       }
-      if (true) {
-        return ret;
-      }
+      return ret;
       /*if (likely(path_size - num_fixed <= 3)) {
         return ret;
       }*/
       /*if (likely(path_size <= 100)) {
         return ret;
       }*/
-      auto temp = getGen()();
       /*if(pq_distribution(getGen())){
         pq_trigger=true;
         cur_time = time(0);
       }*/
+      /*auto temp = getGen()();
+
       int mask = 0xffff;
       if (likely((temp & mask) != (path[path_size - 1]->build_time & mask))) {
         return ret;
@@ -426,8 +425,8 @@ public:
             if (p_acc >= 1) {
               node_prob_prev = i == 0 ? nullptr : path[i - 1];
               node_prob_cur = node;
-              /*std::cout << "+++++++++++++++ " << p_acc << std::endl;
-              std::cout << "+++++++++++++++ " << node->speed << std::endl;*/
+              *//*std::cout << "+++++++++++++++ " << p_acc << std::endl;
+              std::cout << "+++++++++++++++ " << node->speed << std::endl;*//*
               break;
             } else {
               std::bernoulli_distribution acc_distribution(p_acc);
@@ -442,9 +441,9 @@ public:
         }
 
       }
-      /*if (path[path_size - 1] == node_prob_cur) {
+      *//*if (path[path_size - 1] == node_prob_cur) {
         return ret;
-      }*/
+      }*//*
       if (likely(node_prob_cur == nullptr)) {
         return ret;
       }
@@ -535,7 +534,7 @@ public:
 
       //Probability Rebuild End
 
-      return ret;
+      return ret;*/
 
 
     }
@@ -806,7 +805,7 @@ private:
         std::atomic<int> num_inserts, num_insert_to_data;
         std::atomic<int> num_items; // number of slots
         // int num_items;
-        LinearModel<T> model;
+        MultiLinearModel<T> model;
         Item *items;
         //prob
         long double p_conflict;
@@ -913,7 +912,7 @@ private:
       node->fixed = 0;
       node->num_inserts = node->num_insert_to_data = 0;
       node->num_items = 1;
-      node->model.a = node->model.b = 0;
+      node->model.clear();
       node->items = new_items(1);
       node->items[0].entry_type = 0;
 
@@ -953,13 +952,18 @@ private:
       const long double mid1_key = key1;
       const long double mid2_key = key2;
 
-      const double mid1_target = node->num_items / 3;
-      const double mid2_target = node->num_items * 2 / 3;
+      const long double mid1_target = static_cast<long double>(node->num_items) / 3;
+      const long double mid2_target = static_cast<long double>(node->num_items) * 2 / 3;
 
-      node->model.a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
-      node->model.b = mid1_target - node->model.a * mid1_key;
-      RT_ASSERT(isfinite(node->model.a));
-      RT_ASSERT(isfinite(node->model.b));
+      node->model.train_two(mid1_key,mid2_key,mid1_target,mid2_target);
+
+      /*node->model.a1= node->model.a2= (mid2_target - mid1_target) / (mid2_key - mid1_key);
+      node->model.b1= node->model.b2= mid1_target - node->model.a1 * mid1_key;
+      node->model.mid=(mid1_key+mid2_key)/2;*/
+      /*node->model.a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
+      node->model.b = mid1_target - node->model.a * mid1_key;*/
+      //RT_ASSERT(isfinite(node->model.a));
+      //RT_ASSERT(isfinite(node->model.b));
 
       { // insert key1&value1
         int pos = PREDICT_POS(node, key1);
@@ -988,7 +992,7 @@ private:
     Node *
     build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, uint64_t _time,
                     int _type) {
-      return build_tree_bulk_fmcd(_keys, _values, _size, _speed, _time, _type);
+      return build_tree_bulk_ml(_keys, _values, _size, _speed, _time, _type);
       /*if (USE_FMCD) {
         return build_tree_bulk_fmcd(_keys, _values, _size);
       } else {
@@ -1097,6 +1101,165 @@ private:
               node->items[item_i].comp.child = new_nodes(1);
               s.push((Segment) {begin + offset, begin + next, level + 1,
                                 node->items[item_i].comp.child});
+            }
+            if (next >= size) {
+              break;
+            } else {
+              item_i = next_i;
+              offset = next;
+            }
+          }
+        }
+      }
+
+      return ret;
+    }
+
+    Node *
+    build_tree_bulk_ml(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed,
+                         uint64_t _time,
+                         int _type) {
+      RT_ASSERT(_size > 1);
+
+
+      typedef struct {
+          int begin;
+          int end;
+          int level; // top level = 1
+          Node *node;
+          long double speed;
+      } Segment;
+      std::stack <Segment> s;
+
+      Node *ret = new_nodes(1);
+      s.push((Segment) {0, _size, 1, ret, _speed});
+
+      while (!s.empty()) {
+        const int begin = s.top().begin;
+        const int end = s.top().end;
+        const int level = s.top().level;
+        long double speed = s.top().speed;
+        //std::cout<<"fmcd _speed "<<speed<<std::endl;
+        Node *node = s.top().node;
+        s.pop();
+        RT_ASSERT(end - begin >= 2);
+        if (end - begin == 2) {
+          Node *_ = build_tree_two((*_keys)[begin], (*_values)[begin], (*_keys)[begin + 1],
+                                   (*_values)[begin + 1], speed, _time, _type);
+          memcpy(node, _, sizeof(Node));
+          delete_nodes(_, 1);
+        } else {
+          T *keys = &((*_keys)[begin]);
+          P *values = &((*_values)[begin]);
+          const int size = end - begin;
+          const int BUILD_GAP_CNT = compute_gap_count(size);
+
+          node->is_two = 0;
+          node->build_size = size;
+          node->size = size;
+          node->fixed = 0;
+          node->num_inserts = node->num_insert_to_data = 0;
+
+          //prob
+          if (node->build_size < 64) {
+            node->p_conflict = 1 / (0.1 * 2 * 64);
+          } else
+            node->p_conflict = 1 / (0.1 * 2 * node->build_size);
+          node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
+          node->build_time = _time;
+          node->speed = speed;
+          node->last_adjust_type = _type;
+
+          node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
+          int left,right;
+          T max=0;
+          for(int i=1;i<size;i++){
+            T diff=keys[i]-keys[i-1];
+            if(diff>max){
+              left=i-1;
+              right=i;
+              max=diff;
+            }else if(diff==max){
+              right=i;
+            }
+          }
+          /*std::cout<<"left: "<<left<<"\n";
+          std::cout<<"right: "<<right<<"\n";*/
+          /*if(size%2==1){
+            node->model.mid=static_cast<long double>(keys[size/2]);
+          }else{
+            node->model.mid=(static_cast<long double>(keys[size/2])+static_cast<long double>(keys[size/2-1]))/2;
+          }*/
+          node->model.mid=(static_cast<long double>(keys[left])+static_cast<long double>(keys[right]))/2;
+          int t=left;
+          for(int i=left;i<right;i++){
+            if(node->model.mid>keys[i]){
+              t=i;
+            }
+          }
+          //long double mid_target=static_cast<long double>(node->num_items-1)*(1-(node->model.mid-static_cast<long double>(keys[0]))/(keys[size-1]-keys[0]));
+          long double mid_target=static_cast<long double>(node->num_items-1)*((long double)(t+1)/(size));
+          if(size==3){
+            node->model.mid=static_cast<long double>(keys[size/2]);
+            mid_target=static_cast<long double>(node->num_items-1)*(1-(node->model.mid-static_cast<long double>(keys[0]))/(keys[size-1]-keys[0]));
+          }
+          node->model.a1 = (mid_target) / (node->model.mid - static_cast<long double>(keys[0]));
+          node->model.b1 = (mid_target) - node->model.a1 * node->model.mid;
+          node->model.a2 = (static_cast<long double>(node->num_items)-1-mid_target) / ( static_cast<long double>(keys[size-1]-node->model.mid));
+          node->model.b2 = mid_target - node->model.a2 * node->model.mid;
+          /*std::cout<<"size: "<<size<<"\n";
+          std::cout<<"mid_target: "<<mid_target<<"\n";
+          std::cout<<"max: "<<max<<"\n";
+          std::cout<<"t: "<<t<<"\n";
+          std::cout<<"node->num_items: "<<node->num_items<<"\n";
+          std::cout<<"begin: "<<begin<<"\n";
+          std::cout<<"end: "<<end<<"\n";
+          std::cout<<"keys[begin]: "<<keys[0]<<"\n";
+          std::cout<<"keys[end-1]: "<<keys[size-1]<<"\n";
+          std::cout<<"node->model.mid: "<<node->model.mid<<"\n";
+          std::cout<<"node->model.a1: "<<node->model.a1<<"\n";
+          std::cout<<"node->model.b1: "<<node->model.b1<<"\n";
+          std::cout<<"node->model.a2: "<<node->model.a2<<"\n";
+          std::cout<<"node->model.b2: "<<node->model.b2<<"\n";*/
+
+
+
+          const int lr_remains = static_cast<int>(size * BUILD_LR_REMAIN);
+          node->model.b1 += lr_remains;
+          node->model.b2 += lr_remains;
+          node->num_items += lr_remains * 2;
+
+          if (size > 1e6) {
+            node->fixed = 1;
+          }
+
+          node->items = new_items(node->num_items);
+
+          for (int item_i = PREDICT_POS(node, keys[0]), offset = 0;
+               offset < size;) {
+            int next = offset + 1, next_i = -1;
+            while (next < size) {
+              next_i = PREDICT_POS(node, keys[next]);
+              //std::cout<<std::to_string(keys[next])<<" next_i: "<<next_i<<"\n";
+              if (next_i == item_i) {
+                next++;
+              } else {
+                break;
+              }
+            }
+            if (next == offset + 1) {
+              node->items[item_i].entry_type = 2;
+              node->items[item_i].comp.data.key = keys[offset];
+              node->items[item_i].comp.data.value = values[offset];
+            } else {
+              // RT_ASSERT(next - offset <= (size+2) / 3);
+              node->items[item_i].entry_type = 1;
+              node->items[item_i].comp.child = new_nodes(1);
+              s.push((Segment) {begin + offset, begin + next, level + 1, node->items[item_i].comp.child,
+                                speed / node->num_items});
+              /*if(speed / node->num_items ==0){
+                std::cout<<"speed == 0 parent_speed: "<<speed<<"num_items: "<<std::to_string(node->num_items)<<std::endl;
+              }*/
             }
             if (next >= size) {
               break;
@@ -1372,6 +1535,9 @@ private:
       while (!bfs.empty()) {
         Node *node = bfs.front();
         bfs.pop_front();
+        if(count+node->build_size>=64){
+          return 64;
+        }
         for (int i = 0; i < node->num_items; i++) {
           versionItem=node->items[i].readLockOrRestart(needRestart);
           if (needRestart){
@@ -1379,6 +1545,9 @@ private:
           }
           if (node->items[i].entry_type == 2) {
             count++;
+            if(count>=64){
+              return count;
+            }
           } else if (node->items[i].entry_type == 1) { // child
             bfs.push_back(node->items[i].comp.child);
           }

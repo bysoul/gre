@@ -79,6 +79,11 @@ indexInterface<KEY_TYPE, PAYLOAD_TYPE> *get_index(std::string index_type) {
   else if (index_type == "lipp_prob") {
     index = new LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }
+  else if (index_type == "lipp_prob_check64") {
+    index = new LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }else if (index_type == "lipp_prob_ml") {
+    index = new LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }
   /*else if (index_type == "finedex") {
     index = new finedexInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }*/

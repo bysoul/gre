@@ -8,23 +8,24 @@ using namespace std;
 int main() {
   lipp_prob::LIPP<int, int> lipp;
 
-  int key_num = 1000;
-  // pair<int, int> *keys = new pair<int, int>[key_num];
+  int key_num = 99;
+   pair<int, int> *keys = new pair<int, int>[100];
   //omp_set_num_threads(4);
 
 // #pragma omp parallel for schedule(static, 1)
   for (int i = 0; i < key_num; i++) {
-    // keys[i] = {i, i};
+     keys[i] = {i, i};
     // printf("Thread %d insert(%d)\n", omp_get_thread_num(), i);
     //std::cout<<i<<std::endl;
-    lipp.insert(i, i);
+    //lipp.insert(i, i);
     // mix write with read
     // if (i>5)
     // printf("Thread %d, read %d\n", omp_get_thread_num(), lipp.at(i-5,
     // false));
   }
+  keys[99]={1000000000,1000000000};
   // printf("bulk loading\n");
-  // lipp.bulk_load(keys, key_num);
+   lipp.bulk_load(keys, 100);
   std::pair <int, int> *result = new std::pair <int, int>[200];
   int ret=lipp.range_query_len(result, 457, 5);
   for(int i=0;i<ret;i++){
