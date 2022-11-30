@@ -825,7 +825,7 @@ private:
 
     std::atomic<long long> num_read_probability_trigger = 0;
     std::atomic<long long> num_write_probability_trigger = 0;
-    std::atomic<long long> num_lower_64=0;
+    std::atomic<long long> num_lower_64 = 0;
     std::atomic<long long> num_rebuild = 0;
     uint32_t temp = 0xfffff;
     std::vector <std::vector<uint32_t>> p_array;
@@ -871,7 +871,7 @@ private:
     }
 
     EpochBasedMemoryReclamationStrategy *initEbrInstance(LIPP<T, P> *index) {
-      ebr=new EpochBasedMemoryReclamationStrategy(index);
+      ebr = new EpochBasedMemoryReclamationStrategy(index);
       return ebr;
     }
 
@@ -955,7 +955,7 @@ private:
       const long double mid1_target = static_cast<long double>(node->num_items) / 3;
       const long double mid2_target = static_cast<long double>(node->num_items) * 2 / 3;
 
-      node->model.train_two(mid1_key,mid2_key,mid1_target,mid2_target);
+      node->model.train_two(mid1_key, mid2_key, mid1_target, mid2_target);
 
       /*node->model.a1= node->model.a2= (mid2_target - mid1_target) / (mid2_key - mid1_key);
       node->model.b1= node->model.b2= mid1_target - node->model.a1 * mid1_key;
@@ -1117,8 +1117,8 @@ private:
 
     Node *
     build_tree_bulk_ml(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed,
-                         uint64_t _time,
-                         int _type) {
+                       uint64_t _time,
+                       int _type) {
       RT_ASSERT(_size > 1);
 
 
@@ -1171,41 +1171,56 @@ private:
           node->last_adjust_type = _type;
 
           node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
-          int left,right;
-          T max=0;
-          for(int i=1;i<size;i++){
-            T diff=keys[i]-keys[i-1];
-            if(diff>max){
-              left=i-1;
-              right=i;
-              max=diff;
-            }else if(diff==max){
-              right=i;
-            }
-          }
+
           /*std::cout<<"left: "<<left<<"\n";
           std::cout<<"right: "<<right<<"\n";*/
-          /*if(size%2==1){
-            node->model.mid=static_cast<long double>(keys[size/2]);
-          }else{
-            node->model.mid=(static_cast<long double>(keys[size/2])+static_cast<long double>(keys[size/2-1]))/2;
-          }*/
-          node->model.mid=(static_cast<long double>(keys[left])+static_cast<long double>(keys[right]))/2;
-          int t=left;
-          for(int i=left;i<right;i++){
-            if(node->model.mid>keys[i]){
-              t=i;
+          long double mid_target;
+          if (size == 3) {
+            node->model.mid = static_cast<long double>(keys[size / 2]);
+            mid_target = static_cast<long double>(node->num_items - 1) *
+                         (1 - (node->model.mid - static_cast<long double>(keys[0])) / (keys[size - 1] - keys[0]));
+          } else {
+            int left, right;
+            T max = 0;
+            for (int i = 1; i < size; i++) {
+              T diff = keys[i] - keys[i - 1];
+              if (diff > max) {
+                left = i - 1;
+                right = i;
+                max = diff;
+              } else if (diff == max) {
+                right = i;
+              }
             }
+            node->model.mid = (static_cast<long double>(keys[left]) + static_cast<long double>(keys[right])) / 2;
+            int t = -1;
+            if (right - left == 1) {
+              t = left;
+            } else {
+              int t_l = left;
+              int t_r = right + 1;
+              while (t_l < t_r) {
+                int t_mid = t_l + (t_r - t_l) / 2;
+                if (keys[t_mid] == node->model.mid) {
+                  t = t_mid - 1;
+                  break;
+                } else if (keys[t_mid] < node->model.mid) {
+                  t_l = t_mid + 1;
+                } else {
+                  t_r = t_mid;
+                }
+              }
+              if (t == -1) {
+                t = t_r - 1;
+              }
+            }
+            mid_target = static_cast<long double>(node->num_items - 1) * ((long double) (t + 1) / (size));
           }
-          //long double mid_target=static_cast<long double>(node->num_items-1)*(1-(node->model.mid-static_cast<long double>(keys[0]))/(keys[size-1]-keys[0]));
-          long double mid_target=static_cast<long double>(node->num_items-1)*((long double)(t+1)/(size));
-          if(size==3){
-            node->model.mid=static_cast<long double>(keys[size/2]);
-            mid_target=static_cast<long double>(node->num_items-1)*(1-(node->model.mid-static_cast<long double>(keys[0]))/(keys[size-1]-keys[0]));
-          }
+
           node->model.a1 = (mid_target) / (node->model.mid - static_cast<long double>(keys[0]));
           node->model.b1 = (mid_target) - node->model.a1 * node->model.mid;
-          node->model.a2 = (static_cast<long double>(node->num_items)-1-mid_target) / ( static_cast<long double>(keys[size-1]-node->model.mid));
+          node->model.a2 = (static_cast<long double>(node->num_items) - 1 - mid_target) /
+                           (static_cast<long double>(keys[size - 1] - node->model.mid));
           node->model.b2 = mid_target - node->model.a2 * node->model.mid;
           /*std::cout<<"size: "<<size<<"\n";
           std::cout<<"mid_target: "<<mid_target<<"\n";
@@ -1463,7 +1478,7 @@ private:
           Node *node = pending_two[i].top();
           pending_two[i].pop();
           if (s.find(node) != s.end()) {
-            printf("Error: destory_pending dup node %p",node);
+            printf("Error: destory_pending dup node %p", node);
           } else
             s.insert(node);
           delete_items(node->items, node->num_items);
@@ -1526,33 +1541,33 @@ private:
       }
     }
 
-    int count_tree_size(Node *_subroot){
+    int count_tree_size(Node *_subroot) {
       std::list < Node * > bfs;
       bfs.push_back(_subroot);
-      int count=0;
+      int count = 0;
       bool needRestart = false;
       uint64_t versionItem;
       while (!bfs.empty()) {
         Node *node = bfs.front();
         bfs.pop_front();
-        if(count+node->build_size>=64){
+        if (count + node->build_size >= 64) {
           return 64;
         }
         for (int i = 0; i < node->num_items; i++) {
-          versionItem=node->items[i].readLockOrRestart(needRestart);
-          if (needRestart){
+          versionItem = node->items[i].readLockOrRestart(needRestart);
+          if (needRestart) {
             return -1;
           }
           if (node->items[i].entry_type == 2) {
             count++;
-            if(count>=64){
+            if (count >= 64) {
               return count;
             }
           } else if (node->items[i].entry_type == 1) { // child
             bfs.push_back(node->items[i].comp.child);
           }
           node->items[i].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart){
+          if (needRestart) {
             return -1;
           }
         }
@@ -1692,8 +1707,8 @@ private:
 #if COLLECT_TIME
         auto start_time_scan = std::chrono::high_resolution_clock::now();
 #endif
-        if(prev_size<64){
-          if(count_tree_size(node_prob_cur)<64){
+        if (prev_size < 64) {
+          if (count_tree_size(node_prob_cur) < 64) {
             return;
           }
         }
@@ -1723,7 +1738,7 @@ private:
 #if COLLECT_TIME
         auto start_time_build = std::chrono::high_resolution_clock::now();
 #endif
-        if(numKeysCollected<64){
+        if (numKeysCollected < 64) {
           num_lower_64++;
         }
         uint64_t cur_time = timeSinceEpochNanosec();
