@@ -21,6 +21,7 @@
 #include <thread>
 #include <vector>
 #include <unordered_set>
+#include <future>
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -320,11 +321,14 @@ public:
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 10, 5, 4, 3, 2, 2, 1, 0});
       d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 40, 10, 5, 4, 3, 2, 2, 1, 0});*/
 
+      th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
       ebr = initEbrInstance(this);
     }
 
     ~LIPP() {
       std::cout << "Lipp_Probability Destruct." << std::endl;
+      exitSignal=1;
+      th.join();
       destroy_tree(root);
       root = NULL;
       destory_pending();
@@ -594,7 +598,8 @@ public:
         (*values)[i] = vs[i].second;
       }
       destroy_tree(root);
-      root = build_tree_bulk(keys, values, num_keys, 0.001, timeSinceEpochNanosec(), 1);
+      bulk_args args={num_keys, 0.001, timeSinceEpochNanosec(), 1,1};
+      root = build_tree_bulk(keys, values, args);
       delete keys;
       delete values;
     }
@@ -805,7 +810,7 @@ private:
         std::atomic<int> num_inserts, num_insert_to_data;
         std::atomic<int> num_items; // number of slots
         // int num_items;
-        MultiLinearModel<T> model;
+        LinearModel<T> model;
         Item *items;
         //prob
         long double p_conflict;
@@ -832,6 +837,9 @@ private:
     std::vector <std::discrete_distribution<int>> d_array;
     std::bernoulli_distribution pq_distribution{0};
     std::bernoulli_distribution rq_distribution{0.00001};
+
+    std::atomic<int> exitSignal = 0;
+    std::thread th;
 
     /*uint32_t p_array[17][17] = {
         { 0 },
@@ -868,6 +876,17 @@ private:
     uint64_t timeSinceEpochNanosec() {
       using namespace std::chrono;
       return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+    }
+
+    void threadFunction()
+    {
+      std::cout << "Thread Start" << std::endl;
+      while (exitSignal==0)
+      {
+        std::cout << "Doing Some Work" << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      }
+      std::cout << "Thread End" << std::endl;
     }
 
     EpochBasedMemoryReclamationStrategy *initEbrInstance(LIPP<T, P> *index) {
@@ -988,11 +1007,17 @@ private:
       return node;
     }
 
+    struct bulk_args{
+        int _size;
+        long double _speed;
+        uint64_t _time;
+        int _type;
+        long double ratio;
+    };
     /// bulk build, _keys must be sorted in asc order.
     Node *
-    build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed, uint64_t _time,
-                    int _type) {
-      return build_tree_bulk_ml(_keys, _values, _size, _speed, _time, _type);
+    build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, bulk_args &args) {
+      return build_tree_bulk_fmcd(_keys, _values, args);
       /*if (USE_FMCD) {
         return build_tree_bulk_fmcd(_keys, _values, _size);
       } else {
@@ -1292,11 +1317,15 @@ private:
     /// bulk build, _keys must be sorted in asc order.
     /// FMCD method.
     Node *
-    build_tree_bulk_fmcd(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed,
-                         uint64_t _time,
-                         int _type) {
-      RT_ASSERT(_size > 1);
+    build_tree_bulk_fmcd(std::vector <T> *_keys, std::vector <P> *_values, bulk_args &args) {
 
+      int _size=args._size;
+      long double _speed=args._speed;
+      uint64_t _time=args._time;
+      int _type=args._type;
+      long double ratio=args.ratio<1?1:args.ratio;
+      ratio=ratio>8?8:ratio;
+      RT_ASSERT(_size > 1);
 
       typedef struct {
           int begin;
@@ -1408,7 +1437,7 @@ private:
                    static_cast<long double>(keys[mid2_pos + 1])) /
                   2;
 
-              node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
+              node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1)*static_cast<int>(ratio);
               const double mid1_target =
                   mid1_pos * static_cast<int>(BUILD_GAP_CNT + 1) +
                   static_cast<int>(BUILD_GAP_CNT + 1) / 2;
@@ -1697,6 +1726,7 @@ private:
         num_write_probability_trigger++;
         int prev_size = node_prob_cur->build_size;
         uint64_t prev_build_time = node_prob_cur->build_time;
+        long double prev_speed=node_prob_cur->speed;
         // const int ESIZE = node->size; //race here
         // T *keys = new T[ESIZE];
         // P *values = new P[ESIZE];
@@ -1747,7 +1777,9 @@ private:
         /*if(speed ==0){
           std::cout<<"speed == 0 size_inc: "<<std::to_string(numKeysCollected - prev_size)<<"time: "<<std::to_string(cur_time - prev_build_time)<<std::endl;
         }*/
-        Node *new_node = build_tree_bulk(keys, values, numKeysCollected, speed, cur_time, 1);
+        bulk_args args={numKeysCollected, speed, cur_time, 1,speed/prev_speed};
+
+        Node *new_node = build_tree_bulk(keys, values,args);
 #if COLLECT_TIME
         auto end_time_build = std::chrono::high_resolution_clock::now();
         auto duration_build = end_time_build - start_time_build;
