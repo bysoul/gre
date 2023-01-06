@@ -28,6 +28,8 @@
 
 namespace lipp_prob {
 
+static thread_local int skip_counter=0;
+
 // runtime assert
 #define RT_ASSERT(expr)                                                        \
   {                                                                            \
@@ -279,56 +281,16 @@ public:
       }
 
       root = build_tree_none();
-      /*p_array.push_back({0});
-      p_array.push_back({0xffffffff});
-      p_array.push_back({0xffffffff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x1fff, 0x1fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0xfff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0xfff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0xfff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0xfff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back({0x3fff, 0x1fff, 0x7ff, 0x1ff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back(
-          {0x3fff, 0x1fff, 0x7ff, 0xff, 0x1ff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back(
-          {0x3fff, 0x1fff, 0x7ff, 0xff, 0x7f, 0x1ff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff, 0xffffffff});
-      p_array.push_back(
-          {0x3fff, 0x1fff, 0x7ff, 0xff, 0x3f, 0x7f, 0x1ff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff,
-           0xffffffff});
-      p_array.push_back(
-          {0x3fff, 0x1fff, 0x7ff, 0xff, 0, 0x3f, 0x7f, 0x1ff, 0x3ff, 0x7ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x3fff,
-           0xffffffff});*/
-
       int temp = 100000000;
-      /*d_array.push_back(std::discrete_distribution < int > {temp});
-      d_array.push_back(std::discrete_distribution < int > {temp, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 2, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 5, 4, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 5, 4, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 4, 10, 3, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 4, 10, 5, 3, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 10, 5, 4, 3, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 10, 5, 4, 3, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 10, 5, 4, 3, 2, 2, 1, 0});
-      d_array.push_back(std::discrete_distribution < int > {temp, 1, 1, 2, 3, 5, 20, 40, 10, 5, 4, 3, 2, 2, 1, 0});*/
 
-      th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
+      //th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
       ebr = initEbrInstance(this);
     }
 
     ~LIPP() {
       std::cout << "Lipp_Probability Destruct." << std::endl;
-      exitSignal=1;
-      th.join();
+      //exitSignal=1;
+      //th.join();
       destroy_tree(root);
       root = NULL;
       destory_pending();
@@ -397,6 +359,12 @@ public:
           }
         }
       }
+      /*if (++skip_counter== skip_length) {
+        if(pq_distribution(get_generator())){
+          std::cout<<"pq_distribution(get_generator())"<<std::endl;
+        }
+        skip_counter = 0;
+      }*/
       return ret;
       /*if (likely(path_size - num_fixed <= 3)) {
         return ret;
@@ -1323,8 +1291,11 @@ private:
       long double _speed=args._speed;
       uint64_t _time=args._time;
       int _type=args._type;
+      //std::cout<<"build_tree_bulk_fmcd "<<std::to_string(args.ratio)<<std::endl;
       long double ratio=args.ratio<1?1:args.ratio;
       ratio=ratio>8?8:ratio;
+      ratio=1;
+      //std::cout<<"build_tree_bulk_fmcd 0 "<<std::to_string(_size)<<std::endl;
       RT_ASSERT(_size > 1);
 
       typedef struct {
@@ -1367,9 +1338,9 @@ private:
 
           //prob
           if (node->build_size < 64) {
-            node->p_conflict = 1 / (0.1 * 2 * 64);
+            node->p_conflict = 1 / (0.1 * 1 * 64);
           } else
-            node->p_conflict = 1 / (0.1 * 2 * node->build_size);
+            node->p_conflict = 1 / (0.1 * 1 * node->build_size);
           node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
           node->build_time = _time;
           node->speed = speed;
@@ -1382,7 +1353,7 @@ private:
           // should be less than 1 / U_T. So we added a small number (1e-6) to
           // U_T. In fact, it has only a negligible impact of the performance.
           {
-            const int L = size * static_cast<int>(BUILD_GAP_CNT + 1);
+            const int L = size * static_cast<int>(BUILD_GAP_CNT + 1)*static_cast<int>(ratio);
             int i = 0;
             int D = 1;
             RT_ASSERT(D <= size - 1 - D);
@@ -1438,6 +1409,7 @@ private:
                   2;
 
               node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1)*static_cast<int>(ratio);
+              //node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
               const double mid1_target =
                   mid1_pos * static_cast<int>(BUILD_GAP_CNT + 1) +
                   static_cast<int>(BUILD_GAP_CNT + 1) / 2;
@@ -1451,6 +1423,10 @@ private:
               RT_ASSERT(isfinite(node->model.b));
             }
           }
+
+          /*std::cout<<"build_tree_bulk_fmcd 1 "<<std::to_string(node->num_items)<<std::endl;
+          std::cout<<"build_tree_bulk_fmcd 2 "<<std::to_string(size * static_cast<int>(BUILD_GAP_CNT + 1))<<std::endl;
+          std::cout<<"build_tree_bulk_fmcd 3 "<<std::to_string(static_cast<int>(ratio))<<std::endl;*/
           RT_ASSERT(node->model.a >= 0);
           const int lr_remains = static_cast<int>(size * BUILD_LR_REMAIN);
           node->model.b += lr_remains;
@@ -1723,7 +1699,7 @@ private:
       //Probability Rebuild Begin
 
       if (node_prob_cur != nullptr) {
-        num_write_probability_trigger++;
+
         int prev_size = node_prob_cur->build_size;
         uint64_t prev_build_time = node_prob_cur->build_time;
         long double prev_speed=node_prob_cur->speed;
@@ -1738,10 +1714,12 @@ private:
         auto start_time_scan = std::chrono::high_resolution_clock::now();
 #endif
         if (prev_size < 64) {
-          if (count_tree_size(node_prob_cur) < 64) {
+          int t_size=count_tree_size(node_prob_cur);
+          if (t_size < 64) {
             return;
           }
         }
+        num_write_probability_trigger++;
 
         int numKeysCollected = scan_and_destory_tree(
             node_prob_cur, &keys, &values); // pass the (address) of the ptr
@@ -1768,9 +1746,7 @@ private:
 #if COLLECT_TIME
         auto start_time_build = std::chrono::high_resolution_clock::now();
 #endif
-        if (numKeysCollected < 64) {
-          num_lower_64++;
-        }
+
         uint64_t cur_time = timeSinceEpochNanosec();
         long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
         //std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "<< std::to_string(cur_time - prev_build_time) << std::endl;
@@ -1796,7 +1772,6 @@ private:
             "Final step of adjust, try to update parent/root, new node is %p",
             node);
 
-        //path[i] = new_node;
         if (node_prob_prev != nullptr) {
 
           int retryLockCount = 0;
@@ -1968,8 +1943,8 @@ private:
         if (node->fixed == 0) {
           if (node->conflict_distribution(getGen())) {
             //epsilon=0.001
-            long double p_acc = (node->speed * (cur_time - node->build_time) + (path_size - i) / (long double) 1000) /
-                                (node->build_size + 1);
+            long double p_acc = (node->speed * (cur_time - node->build_time)) /
+                                (node->build_size + 1)+ (path_size - i) / (long double) 128 +0.1;
             /*std::cout << "p_conflict " << node->p_conflict << std::endl;
             std::cout << "node->speed " << node->speed << std::endl;
             std::cout << "cur_time " << cur_time << std::endl;
