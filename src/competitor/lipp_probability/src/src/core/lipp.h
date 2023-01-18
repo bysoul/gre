@@ -285,6 +285,7 @@ public:
 
       //th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
       ebr = initEbrInstance(this);
+      std::cout<<"11111111111"<<std::endl;
     }
 
     ~LIPP() {
@@ -778,7 +779,7 @@ private:
         std::atomic<int> num_inserts, num_insert_to_data;
         std::atomic<int> num_items; // number of slots
         // int num_items;
-        LinearModel<T> model;
+        MultiLinearModel<T> model;
         Item *items;
         //prob
         long double p_conflict;
@@ -864,6 +865,7 @@ private:
 
     Node *new_nodes(int n) {
       Node *p = node_allocator.allocate(n);
+      node_allocator.construct(p);
       RT_ASSERT(p != NULL && p != (Node *) (-1));
       return p;
     }
@@ -954,6 +956,7 @@ private:
 
       { // insert key1&value1
         int pos = PREDICT_POS(node, key1);
+        //std::cout<<"insert key1&value1 "<<pos<<" "<<key1<<std::endl;
         RT_ASSERT(node->items[pos].entry_type == 0);
         node->items[pos].entry_type = 2;
         node->items[pos].comp.data.key = key1;
@@ -961,6 +964,8 @@ private:
       }
       { // insert key2&value2
         int pos = PREDICT_POS(node, key2);
+        //std::cout<<"insert key2&value2 "<<pos<<" "<<key2<<std::endl;
+        //node->model.print();
         RT_ASSERT(node->items[pos].entry_type == 0);
         node->items[pos].entry_type = 2;
         node->items[pos].comp.data.key = key2;
@@ -985,7 +990,7 @@ private:
     /// bulk build, _keys must be sorted in asc order.
     Node *
     build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, bulk_args &args) {
-      return build_tree_bulk_fmcd(_keys, _values, args);
+      return build_tree_bulk_ml(_keys, _values, args);
       /*if (USE_FMCD) {
         return build_tree_bulk_fmcd(_keys, _values, _size);
       } else {
@@ -1108,11 +1113,81 @@ private:
       return ret;
     }
 
+    void get_fmcd_output(int L,int N,T *keys,long double *a,long double *b){
+      int i = 0;
+      int D = 1;
+      RT_ASSERT(D <= N - 1 - D);
+      long double Ut = (static_cast<long double>(keys[N - 1 - D]) -
+                        static_cast<long double>(keys[D])) /
+                       (static_cast<long double>(L - 2)) +
+                       1e-6;
+      while (i < N - 1 - D) {
+        while (i + D < N && keys[i + D] - keys[i] >= Ut) {
+          i++;
+        }
+        if (i + D >= N) {
+          break;
+        }
+        D = D + 1;
+        if (D * 3 > N)
+          break;
+        RT_ASSERT(D <= N - 1 - D);
+        Ut = (static_cast<long double>(keys[N - 1 - D]) -
+              static_cast<long double>(keys[D])) /
+             (static_cast<double>(L - 2)) +
+             1e-6;
+      }
+      if (D * 3 <= N) {
+        //stats.fmcd_success_times++;
+
+        *a = 1.0 / Ut;
+        *b =
+            (L -
+             *a * (static_cast<long double>(keys[N - 1 - D]) +
+                  static_cast<long double>(keys[D]))) /
+            2;
+        RT_ASSERT(isfinite(*a));
+        RT_ASSERT(isfinite(*b));
+      } else {
+        //stats.fmcd_broken_times++;
+
+        int mid1_pos = (N - 1) / 3;
+        int mid2_pos = (N - 1) * 2 / 3;
+
+        RT_ASSERT(0 <= mid1_pos);
+        RT_ASSERT(mid1_pos < mid2_pos);
+        RT_ASSERT(mid2_pos < N - 1);
+
+        const long double mid1_key =
+            (static_cast<long double>(keys[mid1_pos]) +
+             static_cast<long double>(keys[mid1_pos + 1])) /
+            2;
+        const long double mid2_key =
+            (static_cast<long double>(keys[mid2_pos]) +
+             static_cast<long double>(keys[mid2_pos + 1])) /
+            2;
+
+        const double mid1_target = (L - 1) / 3;
+        const double mid2_target = (L - 1) * 2 / 3;
+
+        *a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
+        *b = mid1_target - *a * mid1_key;
+        RT_ASSERT(isfinite(*a));
+        RT_ASSERT(isfinite(*b));
+      }
+    }
     Node *
-    build_tree_bulk_ml(std::vector <T> *_keys, std::vector <P> *_values, int _size, long double _speed,
-                       uint64_t _time,
-                       int _type) {
+    build_tree_bulk_ml(std::vector <T> *_keys, std::vector <P> *_values,bulk_args &args) {
+      int _size=args._size;
+      long double _speed=args._speed;
+      uint64_t _time=args._time;
+      int _type=args._type;
+      //std::cout<<"build_tree_bulk_fmcd "<<std::to_string(args.ratio)<<std::endl;
+      long double ratio=args.ratio<1?1:args.ratio;
+      ratio=ratio>8?8:ratio;
+      ratio=1;
       RT_ASSERT(_size > 1);
+
 
 
       typedef struct {
@@ -1156,86 +1231,68 @@ private:
           //prob
           if (node->build_size < 64) {
             node->p_conflict = 1 / (0.1 * 2 * 64);
-          } else
+          } else {
             node->p_conflict = 1 / (0.1 * 2 * node->build_size);
+          }
           node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
           node->build_time = _time;
           node->speed = speed;
           node->last_adjust_type = _type;
 
-          node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
+          if(size<1024){
+            std::cout<<"??????????????"<<std::endl;
+            node->model.top_param.a=0;
+            node->model.top_param.b=0;
+            node->model.segment_count=1;
+            long double tmp_a;
+            long double tmp_b;
+            int segment_size=size* static_cast<int>(BUILD_GAP_CNT +1);
+            get_fmcd_output(segment_size,size,keys,&tmp_a,&tmp_b);
+            node->model.params.emplace_back(tmp_a,tmp_b);
+            node->model.segment_size.push_back(segment_size);
+            node->model.segment_offset.push_back(0);
+            node->model.print();
+            std::cout<<"!!!!!!!!!!!!!!"<<std::endl;
+          }else {
 
-          /*std::cout<<"left: "<<left<<"\n";
-          std::cout<<"right: "<<right<<"\n";*/
-          long double mid_target;
-          if (size == 3) {
-            node->model.mid = static_cast<long double>(keys[size / 2]);
-            mid_target = static_cast<long double>(node->num_items - 1) *
-                         (1 - (node->model.mid - static_cast<long double>(keys[0])) / (keys[size - 1] - keys[0]));
-          } else {
-            int left, right;
-            T max = 0;
-            for (int i = 1; i < size; i++) {
-              T diff = keys[i] - keys[i - 1];
-              if (diff > max) {
-                left = i - 1;
-                right = i;
-                max = diff;
-              } else if (diff == max) {
-                right = i;
+            node->model.segment_count = 4;
+            int segment_count = node->model.segment_count;
+            int N = size;
+            long double a = 0;
+            long double b = 0;
+            get_fmcd_output(segment_count,N,keys,&a,&b);
+            node->model.top_param.a = a;
+            node->model.top_param.b = b;
+            std::vector<int> segments(segment_count, 0);
+            for (int i = 0; i < size; i++) {
+              double v = a * static_cast<long double>(keys[i]) + b;
+              if (v < 0) {
+                segments[0]++;
               }
+              segments[std::min(segment_count - 1, static_cast<int>(v))]++;
             }
-            node->model.mid = (static_cast<long double>(keys[left]) + static_cast<long double>(keys[right])) / 2;
-            int t = -1;
-            if (right - left == 1) {
-              t = left;
-            } else {
-              int t_l = left;
-              int t_r = right + 1;
-              while (t_l < t_r) {
-                int t_mid = t_l + (t_r - t_l) / 2;
-                if (keys[t_mid] == node->model.mid) {
-                  t = t_mid - 1;
-                  break;
-                } else if (keys[t_mid] < node->model.mid) {
-                  t_l = t_mid + 1;
-                } else {
-                  t_r = t_mid;
-                }
-              }
-              if (t == -1) {
-                t = t_r - 1;
-              }
+            int offset = 0;
+            int segment_offset = 0;
+            for (int i = 0; i < segment_count; i++) {
+              long double tmp_a;
+              long double tmp_b;
+              int segment_size = segments[i] * static_cast<int>(BUILD_GAP_CNT + 1);
+              get_fmcd_output(segment_size, segments[i], keys + offset, &tmp_a, &tmp_b);
+              node->model.params.emplace_back(tmp_a, tmp_b);
+              node->model.segment_size.push_back(segment_size);
+              node->model.segment_offset.push_back(segment_offset);
+              offset += segments[i];
+              segment_offset += segment_size;
             }
-            mid_target = static_cast<long double>(node->num_items - 1) * ((long double) (t + 1) / (size));
           }
 
-          node->model.a1 = (mid_target) / (node->model.mid - static_cast<long double>(keys[0]));
-          node->model.b1 = (mid_target) - node->model.a1 * node->model.mid;
-          node->model.a2 = (static_cast<long double>(node->num_items) - 1 - mid_target) /
-                           (static_cast<long double>(keys[size - 1] - node->model.mid));
-          node->model.b2 = mid_target - node->model.a2 * node->model.mid;
-          /*std::cout<<"size: "<<size<<"\n";
-          std::cout<<"mid_target: "<<mid_target<<"\n";
-          std::cout<<"max: "<<max<<"\n";
-          std::cout<<"t: "<<t<<"\n";
-          std::cout<<"node->num_items: "<<node->num_items<<"\n";
-          std::cout<<"begin: "<<begin<<"\n";
-          std::cout<<"end: "<<end<<"\n";
-          std::cout<<"keys[begin]: "<<keys[0]<<"\n";
-          std::cout<<"keys[end-1]: "<<keys[size-1]<<"\n";
-          std::cout<<"node->model.mid: "<<node->model.mid<<"\n";
-          std::cout<<"node->model.a1: "<<node->model.a1<<"\n";
-          std::cout<<"node->model.b1: "<<node->model.b1<<"\n";
-          std::cout<<"node->model.a2: "<<node->model.a2<<"\n";
-          std::cout<<"node->model.b2: "<<node->model.b2<<"\n";*/
-
-
+          node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
 
           const int lr_remains = static_cast<int>(size * BUILD_LR_REMAIN);
-          node->model.b1 += lr_remains;
-          node->model.b2 += lr_remains;
           node->num_items += lr_remains * 2;
+          for(int i=0;i<node->model.segment_count;i++){
+            node->model.params[i].b+=lr_remains;
+          }
 
           if (size > 1e6) {
             node->fixed = 1;

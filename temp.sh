@@ -2,7 +2,7 @@
 
 cd ./build
 
-
+./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./result/covidwo.txt  --memory=1 --thread_num=1,2,4,8,16,24,36,48 --index=lippol
 
 ./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.005 --output_path=./result/covid_1t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
 ./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.05 --output_path=./result/covid_10t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob

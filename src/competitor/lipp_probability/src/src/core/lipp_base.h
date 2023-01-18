@@ -5,14 +5,25 @@
 #include <cmath>
 #include <cstdlib>
 #include <algorithm>
+#include <vector>
 
 namespace lipp_prob {
+
+class model_param{
+public:
+    long double a;
+    long double b;
+    model_param(long double _a,long double _b):a(_a),b(_b){}
+    model_param()=default;
+};
 
 /*template <class T>
 class LinearModelInterface{
     virtual inline int predict(T key) const=0;
     virtual inline double predict_double(T key) const=0;
     virtual inline void clear()=0;
+    virtual inline void train_two(long double mid1_key,long double mid2_key,long double mid1_target,long double mid2_target)=0;
+
 };*/
 // Linear regression model
 template <class T>
@@ -45,7 +56,7 @@ public:
 };
 
 template <class T>
-class MultiLinearModel
+class TwoLinearModel
 {
 public:
     long double mid =0;
@@ -54,9 +65,9 @@ public:
     long double a2 = 0; // slope
     long double b2 = 0; // intercept
 
-    MultiLinearModel() = default;
-    MultiLinearModel(T mid,long double a1, long double b1,long double a2, long double b2) :mid(mid), a1(a1), b1(b1),a2(a2), b2(b2) {}
-    explicit MultiLinearModel(const MultiLinearModel &other) : mid(other.mid),a1(other.a1), b1(other.b1),a2(other.a2),b2(other.b2) {}
+    TwoLinearModel() = default;
+    TwoLinearModel(T mid,long double a1, long double b1,long double a2, long double b2) :mid(mid), a1(a1), b1(b1),a2(a2), b2(b2) {}
+    explicit TwoLinearModel(const TwoLinearModel &other) : mid(other.mid),a1(other.a1), b1(other.b1),a2(other.a2),b2(other.b2) {}
 
     inline int predict(T key) const
     {
@@ -80,6 +91,78 @@ public:
       a1= a2= (mid2_target - mid1_target) / (mid2_key - mid1_key);
       b1= b2= mid1_target - a1 * mid1_key;
       mid=(mid1_key+mid2_key)/2;
+    }
+};
+
+template <class T>
+class MultiLinearModel
+{
+public:
+    model_param top_param;
+    std::vector<model_param> params;
+    std::vector<int> segment_size;
+    std::vector<int> segment_offset;
+    int segment_count=0;
+
+
+    inline int predict(T key) const
+    {
+      return 0;
+    }
+
+    inline double predict_double(T key) const
+    {
+      return predict_pos(key);
+    }
+    inline int predict_pos(T key) const{
+      double v1=top_param.a * static_cast<long double>(key) + top_param.b;
+      int seg_id=0;
+      if (v1 > 0) {
+        seg_id=std::min(segment_count-1, static_cast<int>(v1));
+      }
+      double v2=params[seg_id].a * static_cast<long double>(key) + params[seg_id].b;
+      if (v2 < 0) {
+        return segment_offset[seg_id];
+      }
+      return segment_offset[seg_id]+std::min(segment_size[seg_id], static_cast<int>(v2));
+    }
+
+    inline void clear(){
+    }
+    inline void train_two(long double mid1_key,long double mid2_key,long double mid1_target,long double mid2_target){
+      top_param.a=0;
+      top_param.b=0;
+      long double a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
+      long double b = mid1_target - a * mid1_key;
+      /*std::cout<<std::to_string(mid1_target)<<" .."<< std::to_string(mid2_target)<<std::endl;
+      std::cout<<std::to_string(mid1_key)<<" .."<< std::to_string(mid2_key)<<std::endl;
+      std::cout<<std::to_string(params.size())<<std::endl;
+      if(v.size()>0){
+        std::cout<<"+++++++++======================================================="<<std::endl;
+      }
+      std::cout<<a<<" "<< b<<std::endl;*/
+      segment_count=1;
+      params.push_back(model_param(a,b));
+      //std::cout<<"address1 "<< &params[0]<<std::endl;
+
+      segment_size.push_back(8);
+      segment_offset.push_back(0);
+      //print();
+      /*std::cout<<"+++++++++"<<std::endl;
+      std::cout<<std::to_string(a)<<" "<< std::to_string(b)<<std::endl;
+      std::cout<<"+++++++++"<<std::endl;*/
+
+    }
+    inline void print(){
+      std::cout<<"==========="<<std::endl;
+      std::cout<<top_param.a<<" "<< top_param.b<<std::endl;
+      std::cout<<segment_count<<std::endl;
+      for(int i=0;i<segment_count;i++){
+        std::cout<<std::to_string(params[i].a)<<" "<< std::to_string(params[i].b)<<std::endl;
+
+      }
+      std::cout<<"address2 "<< &params[0]<<std::endl;
+      std::cout<<"==========="<<std::endl;
     }
 };
 
