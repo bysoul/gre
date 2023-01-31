@@ -114,22 +114,37 @@ public:
     {
       return predict_pos(key);
     }
-    inline int predict_pos(T key) const{
+    inline int predict_pos(T key) {
       double v1=top_param.a * static_cast<long double>(key) + top_param.b;
+      if(params.size()==0){
+        print();
+      }
       int seg_id=0;
-      if (v1 > 0) {
+      if (v1 > std::numeric_limits<int>::max() / 2) {
+        seg_id=segment_count-1;
+      }else if (v1 < 0) {
+        seg_id=0;
+      }else{
         seg_id=std::min(segment_count-1, static_cast<int>(v1));
       }
       double v2=params[seg_id].a * static_cast<long double>(key) + params[seg_id].b;
+
+      if (v2 > std::numeric_limits<int>::max() / 2) {
+        return segment_offset[seg_id]+segment_size[seg_id]-1;
+      }
       if (v2 < 0) {
         return segment_offset[seg_id];
       }
-      return segment_offset[seg_id]+std::min(segment_size[seg_id], static_cast<int>(v2));
+
+      return segment_offset[seg_id]+std::min(segment_size[seg_id]-1, static_cast<int>(v2));
     }
 
     inline void clear(){
     }
     inline void train_two(long double mid1_key,long double mid2_key,long double mid1_target,long double mid2_target){
+      params.clear();
+      segment_offset.clear();
+      segment_size.clear();
       top_param.a=0;
       top_param.b=0;
       long double a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
@@ -159,9 +174,9 @@ public:
       std::cout<<segment_count<<std::endl;
       for(int i=0;i<segment_count;i++){
         std::cout<<std::to_string(params[i].a)<<" "<< std::to_string(params[i].b)<<std::endl;
-
+        std::cout<<segment_size[i]<<std::endl;
+        std::cout<<segment_offset[i]<<std::endl;
       }
-      std::cout<<"address2 "<< &params[0]<<std::endl;
       std::cout<<"==========="<<std::endl;
     }
 };

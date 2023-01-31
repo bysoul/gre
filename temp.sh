@@ -2,17 +2,22 @@
 
 cd ./build
 
-./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./result/covidwo.txt  --memory=1 --thread_num=1,2,4,8,16,24,36,48 --index=lippol
+./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=1 --insert=0 --operations_num=200000000 --table_size=-1 --init_table_ratio=1 --output_path=./result/covidro.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
 
-./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.005 --output_path=./result/covid_1t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
-./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.05 --output_path=./result/covid_10t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
-./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.25 --output_path=./result/covid_50t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
+./microbench --keys_file=../data/datasets/genome --keys_file_type=binary --read=1 --insert=0 --operations_num=200000000 --table_size=-1 --init_table_ratio=1 --output_path=./result/genomero.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
+
+./microbench --keys_file=../data/datasets/libio --keys_file_type=binary --read=1 --insert=0 --operations_num=200000000 --table_size=-1 --init_table_ratio=1 --output_path=./result/libioro.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
 
 
-./microbench --keys_file=../data/datasets/osm --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.005 --output_path=./result/osm_1t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
-./microbench --keys_file=../data/datasets/osm --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.05 --output_path=./result/osm_10t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
-./microbench --keys_file=../data/datasets/osm --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.25 --output_path=./result/osm_50t200.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
+./microbench --keys_file=../data/datasets/osm --keys_file_type=binary --read=1 --insert=0 --operations_num=200000000 --table_size=-1 --init_table_ratio=1 --output_path=./result/osmro.txt --memory=1 --thread_num=1,2,4,8,16,24,36,48  --index=lipp_prob
 
+#int init_segment_count=(size>>10);
+#          if( init_segment_count < 8 ){
+#1
+#4
+#8
+#16
+#32
 #echo "covid begin"
 #printf "covid begin\n">>process.txt
 #
@@ -33,7 +38,7 @@ cd ./build
 #
 #echo "covid end"
 #printf "covid end\n">>process.txt
-
+#
 #echo "genome begin"
 #printf "genome begin\n">>process.txt
 #
@@ -89,7 +94,7 @@ cd ./build
 #echo "PID=" $PID
 #wait $PID
 #
-./microbench --keys_file=../data/datasets/osm --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./result/osmwo.txt --memory=1 --thread_num=48  --index=lippol &
+#./microbench --keys_file=../data/datasets/osm --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./result/osmwo.txt --memory=1 --thread_num=48  --index=lippol &
 #PID=$!
 #echo "PID=" $PID
 #wait $PID

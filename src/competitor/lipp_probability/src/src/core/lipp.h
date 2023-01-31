@@ -91,14 +91,15 @@ class LIPP {
     struct Node;
 
     inline int PREDICT_POS(Node *node, T key) const {
-      double v = node->model.predict_double(key);
+      /*double v = node->model.predict_double(key);
       if (v > std::numeric_limits<int>::max() / 2) {
         return node->num_items - 1;
       }
       if (v < 0) {
         return 0;
       }
-      return std::min(node->num_items - 1, static_cast<int>(v));
+      return std::min(node->num_items - 1, static_cast<int>(v));*/
+      return node->model.predict_pos(key);
     }
 
 
@@ -264,7 +265,7 @@ public:
       {
         std::cout << "Lipp_Probability" << std::endl;
         std::vector < Node * > nodes;
-        for (int _ = 0; _ < 1e7; _++) {
+        for (int _ = 0; _ < 1e2; _++) {
           Node *node = build_tree_two(T(0), P(), T(1), P(), 0, 0, 1);
           nodes.push_back(node);
         }
@@ -285,7 +286,6 @@ public:
 
       //th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
       ebr = initEbrInstance(this);
-      std::cout<<"11111111111"<<std::endl;
     }
 
     ~LIPP() {
@@ -352,6 +352,13 @@ public:
             if (needRestart)
               goto restart;
 
+            if(node->items[pos].comp.data.key != key){
+              std::cout<<node->items[pos].comp.data.key<<std::endl;
+              std::cout<<key<<std::endl;
+              std::cout<<pos<<std::endl;
+              std::cout<<"node->num_items "<<node->num_items<<std::endl;
+              node->model.print();
+            }
             RT_ASSERT(node->items[pos].comp.data.key == key);
 
             value = node->items[pos].comp.data.value;
@@ -966,6 +973,11 @@ private:
         int pos = PREDICT_POS(node, key2);
         //std::cout<<"insert key2&value2 "<<pos<<" "<<key2<<std::endl;
         //node->model.print();
+       /* if(node->items[pos].entry_type != 0){
+          std::cout<<"insert key1&value1 "<<pos<<" "<<key1<<std::endl;
+          std::cout<<"insert key2&value2 "<<pos<<" "<<key2<<std::endl;
+          node->model.print();
+        }*/
         RT_ASSERT(node->items[pos].entry_type == 0);
         node->items[pos].entry_type = 2;
         node->items[pos].comp.data.key = key2;
@@ -1143,7 +1155,7 @@ private:
         *a = 1.0 / Ut;
         *b =
             (L -
-             *a * (static_cast<long double>(keys[N - 1 - D]) +
+                (*a) * (static_cast<long double>(keys[N - 1 - D]) +
                   static_cast<long double>(keys[D]))) /
             2;
         RT_ASSERT(isfinite(*a));
@@ -1171,7 +1183,7 @@ private:
         const double mid2_target = (L - 1) * 2 / 3;
 
         *a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
-        *b = mid1_target - *a * mid1_key;
+        *b = mid1_target - (*a) * mid1_key;
         RT_ASSERT(isfinite(*a));
         RT_ASSERT(isfinite(*b));
       }
@@ -1238,55 +1250,112 @@ private:
           node->build_time = _time;
           node->speed = speed;
           node->last_adjust_type = _type;
+          node->num_items=0;
 
-          if(size<1024){
-            std::cout<<"??????????????"<<std::endl;
+          int init_segment_count=64;
+          if( size<init_segment_count*1024 ){
+            //std::cout<<"??????????????"<<std::endl;
+            //std::cout<<size<<std::endl;
+            /*if(size==3){
+              for(int i=0;i<size;i++){
+                std::cout<<keys[i]<<std::endl;
+              }
+            }*/
             node->model.top_param.a=0;
             node->model.top_param.b=0;
             node->model.segment_count=1;
             long double tmp_a;
             long double tmp_b;
-            int segment_size=size* static_cast<int>(BUILD_GAP_CNT +1);
+            int segment_size=size * static_cast<int>(BUILD_GAP_CNT +1);
             get_fmcd_output(segment_size,size,keys,&tmp_a,&tmp_b);
             node->model.params.emplace_back(tmp_a,tmp_b);
             node->model.segment_size.push_back(segment_size);
             node->model.segment_offset.push_back(0);
-            node->model.print();
-            std::cout<<"!!!!!!!!!!!!!!"<<std::endl;
+            node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
+            /*if(size==3){
+              node->model.print();
+              for(int i=0;i<size;i++){
+                std::cout<<node->model.predict_pos(keys[i])<<std::endl;
+                std::cout<<PREDICT_POS(node,keys[i])<<std::endl;
+              }
+            }*/
+            //node->model.print();
+            //std::cout<<"!!!!!!!!!!!!!!"<<std::endl;
           }else {
-
-            node->model.segment_count = 4;
+            //std::cout<<"??????????????"<<init_segment_count<<std::endl;
+            node->model.segment_count = init_segment_count;
             int segment_count = node->model.segment_count;
             int N = size;
             long double a = 0;
             long double b = 0;
+            RT_ASSERT(N>2);
             get_fmcd_output(segment_count,N,keys,&a,&b);
             node->model.top_param.a = a;
             node->model.top_param.b = b;
             std::vector<int> segments(segment_count, 0);
             for (int i = 0; i < size; i++) {
               double v = a * static_cast<long double>(keys[i]) + b;
-              if (v < 0) {
+              if (v > std::numeric_limits<int>::max() / 2) {
+                segments[segment_count - 1]++;
+              }else if (v < 0) {
                 segments[0]++;
+              }else{
+                segments[std::min(segment_count - 1, static_cast<int>(v))]++;
               }
-              segments[std::min(segment_count - 1, static_cast<int>(v))]++;
             }
+            /*if(segments[segment_count-2]<=2||segments[segment_count-1]<=2){
+              segment_count--;
+              node->model.segment_count--;
+            }*/
+            /*for(int i=0;i<segment_count;i++){
+              std::cout<<N<<" "<<segments[i]<<std::endl;
+            }*/
             int offset = 0;
             int segment_offset = 0;
             for (int i = 0; i < segment_count; i++) {
-              long double tmp_a;
-              long double tmp_b;
-              int segment_size = segments[i] * static_cast<int>(BUILD_GAP_CNT + 1);
-              get_fmcd_output(segment_size, segments[i], keys + offset, &tmp_a, &tmp_b);
-              node->model.params.emplace_back(tmp_a, tmp_b);
-              node->model.segment_size.push_back(segment_size);
-              node->model.segment_offset.push_back(segment_offset);
-              offset += segments[i];
-              segment_offset += segment_size;
+              if(segments[i]<2){
+                long double left_key = (static_cast<long double>(i)-node->model.top_param.b)/node->model.top_param.a;
+                long double right_key =(static_cast<long double>(i+1)-node->model.top_param.b)/node->model.top_param.a;
+
+                long double tmp_a = (8) / (right_key - left_key);
+                long double tmp_b = - (tmp_a) * left_key;
+                node->model.params.emplace_back(tmp_a, tmp_b);
+                node->model.segment_size.push_back(8);
+                node->model.segment_offset.push_back(segment_offset);
+                offset += segments[i];
+                segment_offset += 8;
+                node->num_items +=8;
+              }else if(segments[i]==2){
+                long double mid1_key = keys[offset];
+                long double mid2_key = keys[offset+1];
+                long double mid1_target = static_cast<long double>(8) / 3;
+                long double mid2_target = static_cast<long double>(8) * 2 / 3;
+                long double tmp_a = (mid2_target-mid1_target) / (mid2_key - mid1_key);
+                long double tmp_b = mid1_target- (tmp_a) * mid1_key;
+                node->model.params.emplace_back(tmp_a, tmp_b);
+                node->model.segment_size.push_back(8);
+                node->model.segment_offset.push_back(segment_offset);
+                offset += segments[i];
+                segment_offset += 8;
+                node->num_items +=8;
+              }else{
+                long double tmp_a;
+                long double tmp_b;
+                int segment_size = segments[i] * static_cast<int>(BUILD_GAP_CNT + 1);
+                RT_ASSERT(segments[i]>2);
+                get_fmcd_output(segment_size, segments[i], keys + offset, &tmp_a, &tmp_b);
+                node->model.params.emplace_back(tmp_a, tmp_b);
+                node->model.segment_size.push_back(segment_size);
+                node->model.segment_offset.push_back(segment_offset);
+                offset += segments[i];
+                segment_offset += segment_size;
+                node->num_items +=segment_size;
+              }
+
             }
           }
 
-          node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
+
 
           const int lr_remains = static_cast<int>(size * BUILD_LR_REMAIN);
           node->num_items += lr_remains * 2;
@@ -1298,6 +1367,7 @@ private:
             node->fixed = 1;
           }
 
+          //std::cout<<"!!!!!!!!!!!!!!"<<node->num_items<<std::endl;
           node->items = new_items(node->num_items);
 
           for (int item_i = PREDICT_POS(node, keys[0]), offset = 0;
@@ -1914,14 +1984,12 @@ private:
           node->items[pos].comp.data.key = key;
           node->items[pos].comp.data.value = value;
 
-          RT_DEBUG("Key %d inserted into node %p.  Unlock", key, node);
 
           node->items[pos].writeUnlock();
 
           break;
         } else if (node->items[pos].entry_type == 2) // 2 means existing entry has data already
         {
-          RT_DEBUG("Existed %p pos %d, locking.", node, pos);
           node->items[pos].upgradeToWriteLockOrRestart(versionItem, needRestart);
           if (needRestart) {
             goto restart;
@@ -1938,7 +2006,6 @@ private:
           }*/
           insert_to_data = 1;
 
-          RT_DEBUG("Key %d inserted into node %p.  Unlock", key, node);
 
           node->items[pos].writeUnlock();
           conflict_flag = true;
