@@ -22,6 +22,8 @@
 #include <vector>
 #include <unordered_set>
 #include <future>
+#include <unistd.h>
+
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -172,6 +174,7 @@ public:
         void freeForEpoch(uint32_t epoch) {
           std::vector < Node * > &previousFreeList =
               mFreeLists[epoch];
+          std::lock_guard lg(mu_);
           for (Node *node: previousFreeList) {
             if (node->is_two) {
               node->size = 2;
@@ -180,6 +183,7 @@ public:
               for (int i = 0; i < node->num_items; i++) node->items[i].entry_type = 0;
               tree->pending_two[omp_get_thread_num()].push(node);
             } else {
+              delete_from_cooling_pool_unlock(node);
               tree->delete_items(node->items, node->num_items);
               tree->delete_nodes(node, 1);
             }
@@ -260,10 +264,11 @@ public:
 
     typedef std::pair <T, P> V;
 
-    LIPP(double BUILD_LR_REMAIN = 0, bool QUIET = false)
-        : BUILD_LR_REMAIN(BUILD_LR_REMAIN), QUIET(QUIET) {
+    LIPP(double BUILD_LR_REMAIN = 0, bool QUIET = false, long long memory_budget=0)
+        : BUILD_LR_REMAIN(BUILD_LR_REMAIN), QUIET(QUIET), memory_budget_(memory_budget) {
       {
         std::cout << "Lipp_Probability" << std::endl;
+        std::cout << sizeof(Node) << std::endl;
         std::vector < Node * > nodes;
         for (int _ = 0; _ < 1e2; _++) {
           Node *node = build_tree_two(T(0), P(), T(1), P(), 0, 0, 1);
@@ -286,6 +291,16 @@ public:
 
       //th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
       ebr = initEbrInstance(this);
+
+      dummy_head_.next_ = &dummy_tail_;
+      dummy_tail_.prev_ = &dummy_head_;
+
+      if(memory_budget_==0){
+        long pages = sysconf(_SC_PHYS_PAGES);
+        long page_size = sysconf(_SC_PAGE_SIZE);
+        memory_budget_ = pages * page_size;
+      }
+      std::cout << "memory_budget: " <<memory_budget_<< std::endl;
     }
 
     ~LIPP() {
@@ -296,6 +311,13 @@ public:
       root = NULL;
       destory_pending();
       delete ebr;
+
+      ListNode *cur = dummy_head_.next_;
+      while (cur != &dummy_tail_) {
+        ListNode *temp = cur->next_;
+        delete cur;
+        cur = temp;
+      }
     }
 
     void insert(const V &v) { insert(v.first, v.second); }
@@ -802,7 +824,127 @@ private:
     int adjustsuccess = 0;
     std::stack<Node *> pending_two[1024];
 
-    std::allocator <Node> node_allocator;
+    std::atomic<long long> allocated = 0;
+
+    template<class T>
+    class accounting_allocator {
+    public:
+        // type definitions
+        typedef T value_type;
+        typedef T *pointer;
+        typedef const T *const_pointer;
+        typedef T &reference;
+        typedef const T &const_reference;
+        typedef std::size_t size_type;
+        typedef std::ptrdiff_t difference_type;
+        //static size_t allocated;
+
+        // rebind allocator to type U
+        template<class U>
+        struct rebind {
+            typedef accounting_allocator<U> other;
+        };
+
+        // return address of values
+        pointer address(reference value) const {
+          return &value;
+        }
+
+        const_pointer address(const_reference value) const {
+          return &value;
+        }
+
+        /* constructors and destructor
+         * - nothing to do because the allocator has no state
+         */
+        accounting_allocator() throw() {
+        }
+
+        accounting_allocator(const accounting_allocator &) throw() {
+        }
+
+        template<class U>
+        accounting_allocator(const accounting_allocator<U> &) throw() {
+        }
+
+        ~accounting_allocator() throw() {
+        }
+
+        // return maximum number of elements that can be allocated
+        size_type max_size() const throw() {
+          //  std::cout << "max_size()" << std::endl;
+          return std::numeric_limits<std::size_t>::max() / sizeof(T);
+        }
+
+        // allocate but don't initialize num elements of type T
+        pointer allocate(size_type num, const void * = 0) {
+          // print message and allocate memory with global new
+          //std::cerr << "allocate " << num << " element(s)" << " of size " << sizeof(T) << std::endl;
+          pointer ret = (pointer) (::operator new(num * sizeof(T)));
+          //std::cerr << " allocated at: " << (void*)ret << std::endl;
+          allocated += num * sizeof(T);
+          if(allocated>memory_budget_){
+            std::cout << "allocated > memory_budget_, allocated: "<<allocated<< std::endl;
+          }
+          //std::cerr << "allocated: " << allocated/(1024*1024) << " MB" << endl;
+          return ret;
+        }
+
+        // initialize elements of allocated storage p with value value
+        void construct(pointer p, const T &value) {
+          // initialize memory with placement new
+          new((void *) p)T(value);
+        }
+
+        // destroy elements of initialized storage p
+        void destroy(pointer p) {
+          // destroy objects by calling their destructor
+          p->~T();
+        }
+
+        // deallocate storage p of deleted elements
+        void deallocate(pointer p, size_type num) {
+          // print message and deallocate memory with global delete
+#if 0
+          std::cerr << "deallocate " << num << " element(s)"
+                     << " of size " << sizeof(T)
+                     << " at: " << (void*)p << std::endl;
+#endif
+          ::operator delete((void *) p);
+          allocated -= num * sizeof(T);
+        }
+    };
+
+    template<>
+    class accounting_allocator<void> {
+    public:
+        typedef size_t size_type;
+        typedef ptrdiff_t difference_type;
+        typedef void *pointer;
+        typedef const void *const_pointer;
+        typedef void value_type;
+
+        template<typename _Tp1>
+        struct rebind {
+            typedef allocator <_Tp1> other;
+        };
+    };
+
+
+// return that all specializations of this allocator are interchangeable
+    template<class T1, class T2>
+    bool operator==(const accounting_allocator<T1> &,
+                    const accounting_allocator<T2> &) throw() {
+      return true;
+    }
+
+    template<class T1, class T2>
+    bool operator!=(const accounting_allocator<T1> &,
+                    const accounting_allocator<T2> &) throw() {
+      return false;
+    }
+
+    accounting_allocator <Node> node_allocator;
 
     std::atomic<long long> num_read_probability_trigger = 0;
     std::atomic<long long> num_write_probability_trigger = 0;
@@ -816,6 +958,86 @@ private:
 
     std::atomic<int> exitSignal = 0;
     std::thread th;
+
+    long long memory_budget_ = 0;
+
+    struct NodePair{
+        Node *parent_{nullptr};
+        Node *child_{nullptr};
+        NodePair(Node *parent,Node *child): parent_(parent),child_(child){}
+        NodePair()=default;
+    };
+    struct ListNode {
+        NodePair val_;
+        ListNode *prev_{nullptr};
+        ListNode *next_{nullptr};
+        ListNode(NodePair val, ListNode *prev, ListNode *next) : val_(val), prev_(prev), next_(next) {}
+        explicit ListNode(NodePair val) : val_(val) {}
+        ListNode() = default;
+    };
+
+    std::unordered_map<Node *, ListNode *> map_;
+    ListNode dummy_head_;
+    ListNode dummy_tail_;
+    std::mutex mu_;
+    size_t pool_size_;
+    std::bernoulli_distribution cool_select_distribution{0.1};
+
+    void delete_from_cooling_pool(Node * ptr) {
+      std::lock_guard lg(mu_);
+      auto it = map_.find(ptr);
+      if (it == map_.end()) {
+        return;
+      }
+      ListNode *node = it->second;
+      node->prev_->next_ = node->next_;
+      node->next_->prev_ = node->prev_;
+      delete node;
+      map_.erase(it);
+      pool_size_--;
+    }
+
+    void delete_from_cooling_pool_unlock(Node * ptr) {
+      auto it = map_.find(ptr);
+      if (it == map_.end()) {
+        return;
+      }
+      ListNode *node = it->second;
+      node->prev_->next_ = node->next_;
+      node->next_->prev_ = node->prev_;
+      delete node;
+      map_.erase(it);
+      pool_size_--;
+    }
+
+    void push_to_cooling_pool(Node* parent,Node * ptr) {
+      std::lock_guard lg(mu_);
+      if (map_.find(ptr) != map_.end()) {
+        return;
+      }
+      ListNode *node = new ListNode(NodePair(parent,ptr));
+      node->next_ = &dummy_tail_;
+      node->prev_ = dummy_tail_.prev_;
+      dummy_tail_.prev_->next_ = node;
+      dummy_tail_.prev_ = node;
+      map_.insert(std::pair<Node *, ListNode *>(ptr, node));
+      pool_size_++;
+    }
+
+    bool victim_from_cooling_pool(NodePair * ptr) {
+      std::lock_guard lg(mu_);
+      if (pool_size_ == 0) {
+        return false;
+      }
+      pool_size_--;
+      ListNode *node = dummy_head_.next_;
+      dummy_head_.next_ = node->next_;
+      dummy_head_.next_->prev_ = &dummy_head_;
+      *ptr = node->val_;
+      map_.erase(node->val_);
+      delete node;
+      return true;
+    }
 
     /*uint32_t p_array[17][17] = {
         { 0 },
@@ -885,7 +1107,7 @@ private:
       }
     }
 
-    std::allocator <Item> item_allocator;
+    accounting_allocator <Item> item_allocator;
 
     Item *new_items(int n) {
       Item *p = item_allocator.allocate(n);
@@ -1252,7 +1474,7 @@ private:
           node->last_adjust_type = _type;
           node->num_items=0;
 
-          int init_segment_count=64;
+          int init_segment_count=128;
           if( size<init_segment_count*1024 ){
             //std::cout<<"??????????????"<<std::endl;
             //std::cout<<size<<std::endl;
@@ -1825,109 +2047,7 @@ private:
     void prob_rebuild(Node *node_prob_prev, Node *node_prob_cur, const T &key) {
       //Probability Rebuild Begin
 
-      if (node_prob_cur != nullptr) {
 
-        int prev_size = node_prob_cur->build_size;
-        uint64_t prev_build_time = node_prob_cur->build_time;
-        long double prev_speed=node_prob_cur->speed;
-        // const int ESIZE = node->size; //race here
-        // T *keys = new T[ESIZE];
-        // P *values = new P[ESIZE];
-        std::vector <T> *keys;   // make it be a ptr here because we will let scan_and_destroy
-        // to decide the size after getting the locks
-        std::vector <P> *values; // scan_and_destroy will fill up the keys/values
-
-#if COLLECT_TIME
-        auto start_time_scan = std::chrono::high_resolution_clock::now();
-#endif
-        if (prev_size < 64) {
-          int t_size=count_tree_size(node_prob_cur);
-          if (t_size < 64) {
-            return;
-          }
-        }
-        num_write_probability_trigger++;
-
-        int numKeysCollected = scan_and_destory_tree(
-            node_prob_cur, &keys, &values); // pass the (address) of the ptr
-        if (numKeysCollected < 0) {
-          for (int x = 0; x < numKeysCollected; x++) {
-            delete keys; // keys[x] stores keys
-            delete values;
-          }
-          RT_DEBUG("collectKey for adjusting node %p -- one Xlock fails; quit "
-                   "rebuild",
-                   node);; // give up rebuild on this node (most likely other threads have
-          // done it for you already)
-          return;
-        }
-#if COLLECT_TIME
-        auto end_time_scan = std::chrono::high_resolution_clock::now();
-        auto duration_scan = end_time_scan - start_time_scan;
-        stats.time_scan_and_destory_tree +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(duration_scan)
-                .count() *
-            1e-9;
-#endif
-
-#if COLLECT_TIME
-        auto start_time_build = std::chrono::high_resolution_clock::now();
-#endif
-
-        uint64_t cur_time = timeSinceEpochNanosec();
-        long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
-        //std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "<< std::to_string(cur_time - prev_build_time) << std::endl;
-        /*if(speed ==0){
-          std::cout<<"speed == 0 size_inc: "<<std::to_string(numKeysCollected - prev_size)<<"time: "<<std::to_string(cur_time - prev_build_time)<<std::endl;
-        }*/
-        bulk_args args={numKeysCollected, speed, cur_time, 1,speed/prev_speed};
-
-        Node *new_node = build_tree_bulk(keys, values,args);
-#if COLLECT_TIME
-        auto end_time_build = std::chrono::high_resolution_clock::now();
-        auto duration_build = end_time_build - start_time_build;
-        stats.time_build_tree_bulk +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(duration_build)
-                .count() *
-            1e-9;
-#endif
-
-        delete keys;
-        delete values;
-
-        RT_DEBUG(
-            "Final step of adjust, try to update parent/root, new node is %p",
-            node);
-
-        if (node_prob_prev != nullptr) {
-
-          int retryLockCount = 0;
-          retryLock:
-          if (retryLockCount++)
-            yield(retryLockCount);
-
-          int pos = PREDICT_POS(node_prob_prev, key);
-
-          bool needRetry = false;
-
-          node_prob_prev->items[pos].writeLockOrRestart(needRetry);
-          if (needRetry) {
-            RT_DEBUG("Final step of adjust, obtain parent %p lock FAIL, retry",
-                     path[i - 1]);
-            goto retryLock;
-          }
-          RT_DEBUG("Final step of adjust, obtain parent %p lock OK, now give "
-                   "the adjusted tree to parent",
-                   path[i - 1]);
-          node_prob_prev->items[pos].comp.child = new_node;
-          node_prob_prev->items[pos].writeUnlock();
-          adjustsuccess++;
-          RT_DEBUG("Adjusted success=%d", adjustsuccess);
-        } else { // new node is the root, need to update it
-          root = new_node;
-        }
-
-      }        // end REBUILD
     }
 
     // Node* insert_tree(Node *_node, const T &key, const P &value) {
@@ -2033,28 +2153,7 @@ private:
 
       Node *node_prob_prev = nullptr;
       Node *node_prob_cur = nullptr;
-
-      /*auto &p = p_array[path_size];
-      uint32_t temp = uintRand();
-      for (int i = 0; i < path_size - 1; i++) {
-        Node *node = path[i];
-        if (node->fixed == 0) {
-          if ((temp & p[i]) == p[i]) {
-            node_prob_prev = i == 0 ? nullptr : path[i - 1];
-            node_prob_cur = node;
-            break;
-          }
-        }
-      }*/
-      /*auto &d = d_array[path_size];
-      int nodeIdx = d(getGen());
-      if (nodeIdx != 0) {
-        node_prob_cur = path[nodeIdx - 1];
-        if (node_prob_cur->fixed == 1) {
-          node_prob_cur = nullptr;
-        }
-        node_prob_prev = nodeIdx == 1 ? nullptr : path[nodeIdx - 2];
-      }*/
+      int cur_idx=0;
 
       if (!conflict_flag) {
         return true;
@@ -2078,12 +2177,14 @@ private:
             if (p_acc >= 1) {
               node_prob_prev = i == 0 ? nullptr : path[i - 1];
               node_prob_cur = node;
+              cur_idx=i;
               break;
             }
             std::bernoulli_distribution acc_distribution(p_acc);
             if (acc_distribution(getGen())) {
               node_prob_prev = i == 0 ? nullptr : path[i - 1];
               node_prob_cur = node;
+              cur_idx=i;
               //std::cout << "p_conflict " << node->p_conflict << std::endl;
               //std::cout << "============================= " << p_acc << std::endl;
               break;
@@ -2092,8 +2193,120 @@ private:
         }
       }
 
-      if (node_prob_cur != nullptr)
-        prob_rebuild(node_prob_prev, node_prob_cur, key);
+      if (node_prob_cur != nullptr) {
+
+        int prev_size = node_prob_cur->build_size;
+        uint64_t prev_build_time = node_prob_cur->build_time;
+        long double prev_speed=node_prob_cur->speed;
+        // const int ESIZE = node->size; //race here
+        // T *keys = new T[ESIZE];
+        // P *values = new P[ESIZE];
+        std::vector <T> *keys;   // make it be a ptr here because we will let scan_and_destroy
+        // to decide the size after getting the locks
+        std::vector <P> *values; // scan_and_destroy will fill up the keys/values
+
+#if COLLECT_TIME
+        auto start_time_scan = std::chrono::high_resolution_clock::now();
+#endif
+        if (prev_size < 64) {
+          int t_size=count_tree_size(node_prob_cur);
+          if (t_size < 64) {
+            return;
+          }
+        }
+        num_write_probability_trigger++;
+
+        int numKeysCollected = scan_and_destory_tree(
+            node_prob_cur, &keys, &values); // pass the (address) of the ptr
+        if (numKeysCollected < 0) {
+          for (int x = 0; x < numKeysCollected; x++) {
+            delete keys; // keys[x] stores keys
+            delete values;
+          }
+          RT_DEBUG("collectKey for adjusting node %p -- one Xlock fails; quit "
+                   "rebuild",
+                   node);; // give up rebuild on this node (most likely other threads have
+          // done it for you already)
+          return;
+        }
+#if COLLECT_TIME
+        auto end_time_scan = std::chrono::high_resolution_clock::now();
+        auto duration_scan = end_time_scan - start_time_scan;
+        stats.time_scan_and_destory_tree +=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(duration_scan)
+                .count() *
+            1e-9;
+#endif
+
+#if COLLECT_TIME
+        auto start_time_build = std::chrono::high_resolution_clock::now();
+#endif
+
+        if(cur_idx>1){
+          std::lock_guard lg(mu_);
+          for(int i=1;i<cur_idx;i++){
+            delete_from_cooling_pool_unlock(path[i]);
+          }
+        }
+        uint64_t cur_time = timeSinceEpochNanosec();
+        long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
+        //std::cout << "speed: " << speed << " size_inc: " << std::to_string(numKeysCollected - prev_size) << "time: "<< std::to_string(cur_time - prev_build_time) << std::endl;
+        /*if(speed ==0){
+          std::cout<<"speed == 0 size_inc: "<<std::to_string(numKeysCollected - prev_size)<<"time: "<<std::to_string(cur_time - prev_build_time)<<std::endl;
+        }*/
+        bulk_args args={numKeysCollected, speed, cur_time, 1,speed/prev_speed};
+
+        Node *new_node = build_tree_bulk(keys, values,args);
+
+
+#if COLLECT_TIME
+        auto end_time_build = std::chrono::high_resolution_clock::now();
+        auto duration_build = end_time_build - start_time_build;
+        stats.time_build_tree_bulk +=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(duration_build)
+                .count() *
+            1e-9;
+#endif
+
+        delete keys;
+        delete values;
+
+        RT_DEBUG(
+            "Final step of adjust, try to update parent/root, new node is %p",
+            node);
+
+        if (node_prob_prev != nullptr) {
+
+          int retryLockCount = 0;
+          retryLock:
+          if (retryLockCount++)
+            yield(retryLockCount);
+
+          int pos = PREDICT_POS(node_prob_prev, key);
+
+          bool needRetry = false;
+
+          node_prob_prev->items[pos].writeLockOrRestart(needRetry);
+          if (needRetry) {
+            RT_DEBUG("Final step of adjust, obtain parent %p lock FAIL, retry",
+                     path[i - 1]);
+            goto retryLock;
+          }
+          RT_DEBUG("Final step of adjust, obtain parent %p lock OK, now give "
+                   "the adjusted tree to parent",
+                   path[i - 1]);
+          node_prob_prev->items[pos].comp.child = new_node;
+          node_prob_prev->items[pos].writeUnlock();
+          if(cool_select_distribution(getGen())){
+            push_to_cooling_pool(node_prob_prev,new_node);
+          }
+          adjustsuccess++;
+          RT_DEBUG("Adjusted success=%d", adjustsuccess);
+        } else { // new node is the root, need to update it
+          root = new_node;
+        }
+
+      }        // end REBUILD
 
       return true;
     } // end of insert_tree
