@@ -264,6 +264,7 @@ public:
         : BUILD_LR_REMAIN(BUILD_LR_REMAIN), QUIET(QUIET) {
       {
         std::cout << "Lipp_Probability" << std::endl;
+        std::cout << sizeof(Node) << std::endl;
         std::vector < Node * > nodes;
         for (int _ = 0; _ < 1e2; _++) {
           Node *node = build_tree_two(T(0), P(), T(1), P(), 0, 0, 1);
@@ -786,7 +787,6 @@ private:
         std::atomic<int> num_inserts, num_insert_to_data;
         std::atomic<int> num_items; // number of slots
         // int num_items;
-        MultiLinearModel<T> model;
         Item *items;
         //prob
         long double p_conflict;
@@ -795,6 +795,7 @@ private:
         uint64_t build_time;
         long double speed;
         int last_adjust_type = 1;
+        MultiLinearModel<T> model;
     };
 
 
@@ -1252,8 +1253,8 @@ private:
           node->last_adjust_type = _type;
           node->num_items=0;
 
-          int init_segment_count=64;
-          if( size<init_segment_count*1024 ){
+          int init_segment_count=8;
+          if( size< init_segment_count*1024*1024){
             //std::cout<<"??????????????"<<std::endl;
             //std::cout<<size<<std::endl;
             /*if(size==3){
@@ -1268,9 +1269,12 @@ private:
             long double tmp_b;
             int segment_size=size * static_cast<int>(BUILD_GAP_CNT +1);
             get_fmcd_output(segment_size,size,keys,&tmp_a,&tmp_b);
-            node->model.params.emplace_back(tmp_a,tmp_b);
+            /*node->model.params.emplace_back(tmp_a,tmp_b);
             node->model.segment_size.push_back(segment_size);
-            node->model.segment_offset.push_back(0);
+            node->model.segment_offset.push_back(0);*/
+            node->model.params[0]=model_param(tmp_a,tmp_b);
+            node->model.segment_size[0]=segment_size;
+            node->model.segment_offset[0]=0;
             node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
             /*if(size==3){
               node->model.print();
@@ -1319,9 +1323,12 @@ private:
 
                 long double tmp_a = (8) / (right_key - left_key);
                 long double tmp_b = - (tmp_a) * left_key;
-                node->model.params.emplace_back(tmp_a, tmp_b);
+                /*node->model.params.emplace_back(tmp_a, tmp_b);
                 node->model.segment_size.push_back(8);
-                node->model.segment_offset.push_back(segment_offset);
+                node->model.segment_offset.push_back(segment_offset);*/
+                node->model.params[i]=model_param(tmp_a,tmp_b);
+                node->model.segment_size[i]=8;
+                node->model.segment_offset[i]=segment_offset;
                 offset += segments[i];
                 segment_offset += 8;
                 node->num_items +=8;
@@ -1332,9 +1339,12 @@ private:
                 long double mid2_target = static_cast<long double>(8) * 2 / 3;
                 long double tmp_a = (mid2_target-mid1_target) / (mid2_key - mid1_key);
                 long double tmp_b = mid1_target- (tmp_a) * mid1_key;
-                node->model.params.emplace_back(tmp_a, tmp_b);
+                /*node->model.params.emplace_back(tmp_a, tmp_b);
                 node->model.segment_size.push_back(8);
-                node->model.segment_offset.push_back(segment_offset);
+                node->model.segment_offset.push_back(segment_offset);*/
+                node->model.params[i]=model_param(tmp_a,tmp_b);
+                node->model.segment_size[i]=8;
+                node->model.segment_offset[i]=segment_offset;
                 offset += segments[i];
                 segment_offset += 8;
                 node->num_items +=8;
@@ -1344,9 +1354,12 @@ private:
                 int segment_size = segments[i] * static_cast<int>(BUILD_GAP_CNT + 1);
                 RT_ASSERT(segments[i]>2);
                 get_fmcd_output(segment_size, segments[i], keys + offset, &tmp_a, &tmp_b);
-                node->model.params.emplace_back(tmp_a, tmp_b);
+                /*node->model.params.emplace_back(tmp_a, tmp_b);
                 node->model.segment_size.push_back(segment_size);
-                node->model.segment_offset.push_back(segment_offset);
+                node->model.segment_offset.push_back(segment_offset);*/
+                node->model.params[i]=model_param(tmp_a,tmp_b);
+                node->model.segment_size[i]=segment_size;
+                node->model.segment_offset[i]=segment_offset;
                 offset += segments[i];
                 segment_offset += segment_size;
                 node->num_items +=segment_size;

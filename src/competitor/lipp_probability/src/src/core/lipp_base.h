@@ -99,9 +99,9 @@ class MultiLinearModel
 {
 public:
     model_param top_param;
-    std::vector<model_param> params;
-    std::vector<int> segment_size;
-    std::vector<int> segment_offset;
+    std::array<model_param,8> params;
+    std::array<int,8> segment_size;
+    std::array<int,8> segment_offset;
     int segment_count=0;
 
 
@@ -142,9 +142,9 @@ public:
     inline void clear(){
     }
     inline void train_two(long double mid1_key,long double mid2_key,long double mid1_target,long double mid2_target){
-      params.clear();
+      /*params.clear();
       segment_offset.clear();
-      segment_size.clear();
+      segment_size.clear();*/
       top_param.a=0;
       top_param.b=0;
       long double a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
@@ -157,11 +157,14 @@ public:
       }
       std::cout<<a<<" "<< b<<std::endl;*/
       segment_count=1;
-      params.push_back(model_param(a,b));
-      //std::cout<<"address1 "<< &params[0]<<std::endl;
 
-      segment_size.push_back(8);
-      segment_offset.push_back(0);
+      //std::cout<<"address1 "<< &params[0]<<std::endl;
+//      params.push_back(model_param(a,b));
+//      segment_size.push_back(8);
+//      segment_offset.push_back(0);
+      params[0]=model_param(a,b);
+      segment_size[0]=8;
+      segment_offset[0]=0;
       //print();
       /*std::cout<<"+++++++++"<<std::endl;
       std::cout<<std::to_string(a)<<" "<< std::to_string(b)<<std::endl;
