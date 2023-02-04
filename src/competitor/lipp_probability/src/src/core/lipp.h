@@ -23,6 +23,7 @@
 #include <unordered_set>
 #include <future>
 #include <unistd.h>
+#include "piecewise_linear_model.h"
 
 
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -31,6 +32,7 @@
 namespace lipp_prob {
 
 static thread_local int skip_counter=0;
+static std::atomic<long long> allocated=0;
 
 // runtime assert
 #define RT_ASSERT(expr)                                                        \
@@ -174,7 +176,7 @@ public:
         void freeForEpoch(uint32_t epoch) {
           std::vector < Node * > &previousFreeList =
               mFreeLists[epoch];
-          std::lock_guard lg(mu_);
+          std::lock_guard lg(tree->mu_);
           for (Node *node: previousFreeList) {
             if (node->is_two) {
               node->size = 2;
@@ -183,7 +185,7 @@ public:
               for (int i = 0; i < node->num_items; i++) node->items[i].entry_type = 0;
               tree->pending_two[omp_get_thread_num()].push(node);
             } else {
-              delete_from_cooling_pool_unlock(node);
+              tree->delete_from_cooling_pool_unlock(node);
               tree->delete_items(node->items, node->num_items);
               tree->delete_nodes(node, 1);
             }
@@ -289,24 +291,26 @@ public:
       root = build_tree_none();
       int temp = 100000000;
 
-      //th= std::thread(&lipp_prob::LIPP<int, int>::threadFunction,this);
       ebr = initEbrInstance(this);
 
       dummy_head_.next_ = &dummy_tail_;
       dummy_tail_.prev_ = &dummy_head_;
 
+      allocated=0;
       if(memory_budget_==0){
         long pages = sysconf(_SC_PHYS_PAGES);
         long page_size = sysconf(_SC_PAGE_SIZE);
         memory_budget_ = pages * page_size;
       }
       std::cout << "memory_budget: " <<memory_budget_<< std::endl;
+      th= std::thread(&lipp_prob::LIPP<T, P>::threadFunction,this);
     }
 
     ~LIPP() {
       std::cout << "Lipp_Probability Destruct." << std::endl;
-      //exitSignal=1;
-      //th.join();
+      exitSignal=1;
+      compress_cv_.notify_one();
+      th.join();
       destroy_tree(root);
       root = NULL;
       destory_pending();
@@ -375,11 +379,20 @@ public:
               goto restart;
 
             if(node->items[pos].comp.data.key != key){
-              std::cout<<node->items[pos].comp.data.key<<std::endl;
-              std::cout<<key<<std::endl;
-              std::cout<<pos<<std::endl;
-              std::cout<<"node->num_items "<<node->num_items<<std::endl;
-              node->model.print();
+              if(node->last_adjust_type==3){
+                int lo=(pos) <= (compress_epsilon) ? 0 : ((pos) - (compress_epsilon));
+                int hi=(pos) + (compress_epsilon) + 2 >= (node->num_items.load()) ? (node->num_items.load()) : (pos) + (compress_epsilon) + 2;
+                auto n = hi-lo;
+                while (n > 1) {
+                  auto half = n / 2;
+                  /*__builtin_prefetch(&*(first + half / 2), 0, 0);
+                  __builtin_prefetch(&*(first + half + half / 2), 0, 0);*/
+                  lo = node->items[lo+half].comp.data.key < key ? lo + half : lo;
+                  n -= half;
+                }
+                lo=node->items[lo].comp.data.key < key ?(lo+1):lo;
+                pos=lo;
+              }
             }
             RT_ASSERT(node->items[pos].comp.data.key == key);
 
@@ -807,8 +820,6 @@ private:
         int fixed; // fixed node will not trigger rebuild
         std::atomic<int> num_inserts, num_insert_to_data;
         std::atomic<int> num_items; // number of slots
-        // int num_items;
-        MultiLinearModel<T> model;
         Item *items;
         //prob
         long double p_conflict;
@@ -825,17 +836,17 @@ private:
     int adjustsuccess = 0;
     std::stack<Node *> pending_two[1024];
 
-    std::atomic<long long> allocated = 0;
 
-    template<class T>
+
+    template<class Type>
     class accounting_allocator {
     public:
         // type definitions
-        typedef T value_type;
-        typedef T *pointer;
-        typedef const T *const_pointer;
-        typedef T &reference;
-        typedef const T &const_reference;
+        typedef Type value_type;
+        typedef Type *pointer;
+        typedef const Type *const_pointer;
+        typedef Type &reference;
+        typedef const Type &const_reference;
         typedef std::size_t size_type;
         typedef std::ptrdiff_t difference_type;
         //static size_t allocated;
@@ -874,33 +885,35 @@ private:
         // return maximum number of elements that can be allocated
         size_type max_size() const throw() {
           //  std::cout << "max_size()" << std::endl;
-          return std::numeric_limits<std::size_t>::max() / sizeof(T);
+          return std::numeric_limits<std::size_t>::max() / sizeof(Type);
         }
 
-        // allocate but don't initialize num elements of type T
+        // allocate but don't initialize num elements of type Type
         pointer allocate(size_type num, const void * = 0) {
           // print message and allocate memory with global new
-          //std::cerr << "allocate " << num << " element(s)" << " of size " << sizeof(T) << std::endl;
-          pointer ret = (pointer) (::operator new(num * sizeof(T)));
+          //std::cerr << "allocate " << num << " element(s)" << " of size " << sizeof(Type) << std::endl;
+          pointer ret = (pointer) (::operator new(num * sizeof(Type)));
           //std::cerr << " allocated at: " << (void*)ret << std::endl;
-          allocated += num * sizeof(T);
-          if(allocated>memory_budget_){
-            std::cout << "allocated > memory_budget_, allocated: "<<allocated<< std::endl;
-          }
+          allocated += num * sizeof(Type);
           //std::cerr << "allocated: " << allocated/(1024*1024) << " MB" << endl;
           return ret;
         }
 
         // initialize elements of allocated storage p with value value
-        void construct(pointer p, const T &value) {
+        void construct(pointer p, const Type &value) {
           // initialize memory with placement new
-          new((void *) p)T(value);
+          new((void *) p)Type(value);
+        }
+
+        void construct(pointer p) {
+          // initialize memory with placement new
+          new((void *) p)Type();
         }
 
         // destroy elements of initialized storage p
         void destroy(pointer p) {
           // destroy objects by calling their destructor
-          p->~T();
+          p->~Type();
         }
 
         // deallocate storage p of deleted elements
@@ -908,15 +921,15 @@ private:
           // print message and deallocate memory with global delete
 #if 0
           std::cerr << "deallocate " << num << " element(s)"
-                     << " of size " << sizeof(T)
+                     << " of size " << sizeof(Type)
                      << " at: " << (void*)p << std::endl;
 #endif
           ::operator delete((void *) p);
-          allocated -= num * sizeof(T);
+          allocated -= num * sizeof(Type);
         }
     };
 
-    template<>
+    /*template<>
     class accounting_allocator<void> {
     public:
         typedef size_t size_type;
@@ -943,7 +956,7 @@ private:
     bool operator!=(const accounting_allocator<T1> &,
                     const accounting_allocator<T2> &) throw() {
       return false;
-    }
+    }*/
 
     accounting_allocator <Node> node_allocator;
 
@@ -1035,7 +1048,7 @@ private:
       dummy_head_.next_ = node->next_;
       dummy_head_.next_->prev_ = &dummy_head_;
       *ptr = node->val_;
-      map_.erase(node->val_);
+      map_.erase(node->val_.child_);
       delete node;
       return true;
     }
@@ -1077,15 +1090,101 @@ private:
       return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
     }
 
+    std::mutex compress_mu_;
+    std::condition_variable compress_cv_;
+    int compress_epsilon=512;
+
     void threadFunction()
     {
-      std::cout << "Thread Start" << std::endl;
+      std::cout << "Compress Thread Start" << std::endl;
+
+      std::unique_lock<std::mutex> latch(compress_mu_);
       while (exitSignal==0)
       {
-        std::cout << "Doing Some Work" << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        compress_cv_.wait(latch);
+        std::cout << "Doing Compress" << std::endl;
+        NodePair nodePair;
+        auto ret=victim_from_cooling_pool(&nodePair);
+        if(ret==false){
+          continue;
+        }
+        Node *child = nodePair.child_;
+        std::vector <T> *keys;
+        std::vector <P> *values;
+        int numKeysCollected = scan_and_destory_tree(
+            child, &keys, &values);
+        if (numKeysCollected < 0) {
+          continue;
+        }
+        int prev_size = child->build_size;
+        uint64_t prev_build_time = child->build_time;
+        uint64_t cur_time = timeSinceEpochNanosec();
+        long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
+        //bulk_args args={numKeysCollected, speed, cur_time, 1,speed/prev_speed};
+
+
+        Node *new_node = new_nodes(1);
+        OptimalPiecewiseLinearModel<T, P> opt(compress_epsilon);
+        opt.add_point((*keys)[0],0);
+        int start = 0;
+        int segment_idx=0;
+        for (int i = 1; i < numKeysCollected; ++i) {
+          bool add_success = opt.add_point((*keys)[i], i-start);  // alwayse start from 0 for each segment
+          if(add_success){
+            continue;
+          }else {
+            typename OptimalPiecewiseLinearModel<T, P>::CanonicalSegment cs = opt.get_segment();
+            //pgm auto[cs_slope, cs_intercept] = cs.get_floating_point_segment(cs.get_first_x());
+            auto[cs_slope, cs_intercept] = cs.get_floating_point_segment(0);
+            new_node->model.params[segment_idx]=model_param(cs_slope,cs_intercept);
+            segment_idx++;
+            start = i;
+            opt.add_point((*keys)[i], i-start);
+          }
+        }
+
+        new_node->is_two = 0;
+        new_node->build_size = numKeysCollected;
+        new_node->size = numKeysCollected;
+        new_node->fixed = 0;
+        new_node->num_inserts = child->num_insert_to_data = 0;
+        new_node->num_items = numKeysCollected;
+        if (numKeysCollected > 1e6) {
+          new_node->fixed = 1;
+        }
+        new_node->items = new_items(new_node->num_items);
+        if (new_node->build_size < 64) {
+          new_node->p_conflict = 1 / (0.1 * 2 * 64);
+        } else {
+          new_node->p_conflict = 1 / (0.1 * 2 * new_node->build_size);
+        }
+        new_node->conflict_distribution = std::bernoulli_distribution(new_node->p_conflict);
+        new_node->build_time = cur_time;
+        new_node->speed = speed;
+        new_node->last_adjust_type = 3;
+        for (int i = 1; i < numKeysCollected; ++i) {
+          new_node->items[i].entry_type = 2;
+          new_node->items[i].comp.data.key = (*keys)[i];
+          new_node->items[i].comp.data.value = (*values)[i];
+        }
+        int retryLockCount = 0;
+        retryLock:
+        if (retryLockCount++)
+          yield(retryLockCount);
+
+        int pos = PREDICT_POS(nodePair.parent_, (*keys)[0]);
+
+        bool needRetry = false;
+
+        nodePair.parent_->items[pos].writeLockOrRestart(needRetry);
+        if (needRetry) {
+          goto retryLock;
+        }
+        nodePair.parent_->items[pos].comp.child = new_node;
+        nodePair.parent_->items[pos].writeUnlock();
+        //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
-      std::cout << "Thread End" << std::endl;
+      std::cout << "Compress Thread End" << std::endl;
     }
 
     EpochBasedMemoryReclamationStrategy *initEbrInstance(LIPP<T, P> *index) {
@@ -1838,6 +1937,240 @@ private:
       return ret;
     }
 
+    Node *
+    build_tree_compress(std::vector <T> *_keys, std::vector <P> *_values,bulk_args &args) {
+      int _size=args._size;
+      long double _speed=args._speed;
+      uint64_t _time=args._time;
+      int _type=args._type;
+      long double ratio=args.ratio<1?1:args.ratio;
+      ratio=ratio>8?8:ratio;
+      ratio=1;
+      RT_ASSERT(_size > 1);
+
+
+
+
+
+      typedef struct {
+          int begin;
+          int end;
+          int level; // top level = 1
+          Node *node;
+          long double speed;
+      } Segment;
+      std::stack <Segment> s;
+
+      Node *ret = new_nodes(1);
+      s.push((Segment) {0, _size, 1, ret, _speed});
+
+      while (!s.empty()) {
+        const int begin = s.top().begin;
+        const int end = s.top().end;
+        const int level = s.top().level;
+        long double speed = s.top().speed;
+        //std::cout<<"fmcd _speed "<<speed<<std::endl;
+        Node *node = s.top().node;
+        s.pop();
+        RT_ASSERT(end - begin >= 2);
+        if (end - begin == 2) {
+          Node *_ = build_tree_two((*_keys)[begin], (*_values)[begin], (*_keys)[begin + 1],
+                                   (*_values)[begin + 1], speed, _time, _type);
+          memcpy(node, _, sizeof(Node));
+          delete_nodes(_, 1);
+        } else {
+          T *keys = &((*_keys)[begin]);
+          P *values = &((*_values)[begin]);
+          const int size = end - begin;
+          const int BUILD_GAP_CNT = compute_gap_count(size);
+
+          node->is_two = 0;
+          node->build_size = size;
+          node->size = size;
+          node->fixed = 0;
+          node->num_inserts = node->num_insert_to_data = 0;
+
+          //prob
+          if (node->build_size < 64) {
+            node->p_conflict = 1 / (0.1 * 2 * 64);
+          } else {
+            node->p_conflict = 1 / (0.1 * 2 * node->build_size);
+          }
+          node->conflict_distribution = std::bernoulli_distribution(node->p_conflict);
+          node->build_time = _time;
+          node->speed = speed;
+          node->last_adjust_type = _type;
+          node->num_items=0;
+
+          int init_segment_count=8;
+          if( size< init_segment_count*1024*1024){
+            //std::cout<<"??????????????"<<std::endl;
+            //std::cout<<size<<std::endl;
+            /*if(size==3){
+              for(int i=0;i<size;i++){
+                std::cout<<keys[i]<<std::endl;
+              }
+            }*/
+            node->model.top_param.a=0;
+            node->model.top_param.b=0;
+            node->model.segment_count=1;
+            long double tmp_a;
+            long double tmp_b;
+            int segment_size=size * static_cast<int>(BUILD_GAP_CNT +1);
+            get_fmcd_output(segment_size,size,keys,&tmp_a,&tmp_b);
+            /*node->model.params.emplace_back(tmp_a,tmp_b);
+            node->model.segment_size.push_back(segment_size);
+            node->model.segment_offset.push_back(0);*/
+            node->model.params[0]=model_param(tmp_a,tmp_b);
+            node->model.segment_size[0]=segment_size;
+            node->model.segment_offset[0]=0;
+            node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
+            /*if(size==3){
+              node->model.print();
+              for(int i=0;i<size;i++){
+                std::cout<<node->model.predict_pos(keys[i])<<std::endl;
+                std::cout<<PREDICT_POS(node,keys[i])<<std::endl;
+              }
+            }*/
+            //node->model.print();
+            //std::cout<<"!!!!!!!!!!!!!!"<<std::endl;
+          }else {
+            //std::cout<<"??????????????"<<init_segment_count<<std::endl;
+            node->model.segment_count = init_segment_count;
+            int segment_count = node->model.segment_count;
+            int N = size;
+            long double a = 0;
+            long double b = 0;
+            RT_ASSERT(N>2);
+            get_fmcd_output(segment_count,N,keys,&a,&b);
+            node->model.top_param.a = a;
+            node->model.top_param.b = b;
+            std::vector<int> segments(segment_count, 0);
+            for (int i = 0; i < size; i++) {
+              double v = a * static_cast<long double>(keys[i]) + b;
+              if (v > std::numeric_limits<int>::max() / 2) {
+                segments[segment_count - 1]++;
+              }else if (v < 0) {
+                segments[0]++;
+              }else{
+                segments[std::min(segment_count - 1, static_cast<int>(v))]++;
+              }
+            }
+            /*if(segments[segment_count-2]<=2||segments[segment_count-1]<=2){
+              segment_count--;
+              node->model.segment_count--;
+            }*/
+            /*for(int i=0;i<segment_count;i++){
+              std::cout<<N<<" "<<segments[i]<<std::endl;
+            }*/
+            int offset = 0;
+            int segment_offset = 0;
+            for (int i = 0; i < segment_count; i++) {
+              if(segments[i]<2){
+                long double left_key = (static_cast<long double>(i)-node->model.top_param.b)/node->model.top_param.a;
+                long double right_key =(static_cast<long double>(i+1)-node->model.top_param.b)/node->model.top_param.a;
+
+                long double tmp_a = (8) / (right_key - left_key);
+                long double tmp_b = - (tmp_a) * left_key;
+                /*node->model.params.emplace_back(tmp_a, tmp_b);
+                node->model.segment_size.push_back(8);
+                node->model.segment_offset.push_back(segment_offset);*/
+                node->model.params[i]=model_param(tmp_a,tmp_b);
+                node->model.segment_size[i]=8;
+                node->model.segment_offset[i]=segment_offset;
+                offset += segments[i];
+                segment_offset += 8;
+                node->num_items +=8;
+              }else if(segments[i]==2){
+                long double mid1_key = keys[offset];
+                long double mid2_key = keys[offset+1];
+                long double mid1_target = static_cast<long double>(8) / 3;
+                long double mid2_target = static_cast<long double>(8) * 2 / 3;
+                long double tmp_a = (mid2_target-mid1_target) / (mid2_key - mid1_key);
+                long double tmp_b = mid1_target- (tmp_a) * mid1_key;
+                /*node->model.params.emplace_back(tmp_a, tmp_b);
+                node->model.segment_size.push_back(8);
+                node->model.segment_offset.push_back(segment_offset);*/
+                node->model.params[i]=model_param(tmp_a,tmp_b);
+                node->model.segment_size[i]=8;
+                node->model.segment_offset[i]=segment_offset;
+                offset += segments[i];
+                segment_offset += 8;
+                node->num_items +=8;
+              }else{
+                long double tmp_a;
+                long double tmp_b;
+                int segment_size = segments[i] * static_cast<int>(BUILD_GAP_CNT + 1);
+                RT_ASSERT(segments[i]>2);
+                get_fmcd_output(segment_size, segments[i], keys + offset, &tmp_a, &tmp_b);
+                /*node->model.params.emplace_back(tmp_a, tmp_b);
+                node->model.segment_size.push_back(segment_size);
+                node->model.segment_offset.push_back(segment_offset);*/
+                node->model.params[i]=model_param(tmp_a,tmp_b);
+                node->model.segment_size[i]=segment_size;
+                node->model.segment_offset[i]=segment_offset;
+                offset += segments[i];
+                segment_offset += segment_size;
+                node->num_items +=segment_size;
+              }
+
+            }
+          }
+
+
+
+          const int lr_remains = static_cast<int>(size * BUILD_LR_REMAIN);
+          node->num_items += lr_remains * 2;
+          for(int i=0;i<node->model.segment_count;i++){
+            node->model.params[i].b+=lr_remains;
+          }
+
+          if (size > 1e6) {
+            node->fixed = 1;
+          }
+
+          //std::cout<<"!!!!!!!!!!!!!!"<<node->num_items<<std::endl;
+          node->items = new_items(node->num_items);
+
+          for (int item_i = PREDICT_POS(node, keys[0]), offset = 0;
+               offset < size;) {
+            int next = offset + 1, next_i = -1;
+            while (next < size) {
+              next_i = PREDICT_POS(node, keys[next]);
+              //std::cout<<std::to_string(keys[next])<<" next_i: "<<next_i<<"\n";
+              if (next_i == item_i) {
+                next++;
+              } else {
+                break;
+              }
+            }
+            if (next == offset + 1) {
+              node->items[item_i].entry_type = 2;
+              node->items[item_i].comp.data.key = keys[offset];
+              node->items[item_i].comp.data.value = values[offset];
+            } else {
+              // RT_ASSERT(next - offset <= (size+2) / 3);
+              node->items[item_i].entry_type = 1;
+              node->items[item_i].comp.child = new_nodes(1);
+              s.push((Segment) {begin + offset, begin + next, level + 1, node->items[item_i].comp.child,
+                                speed / node->num_items});
+              /*if(speed / node->num_items ==0){
+                std::cout<<"speed == 0 parent_speed: "<<speed<<"num_items: "<<std::to_string(node->num_items)<<std::endl;
+              }*/
+            }
+            if (next >= size) {
+              break;
+            } else {
+              item_i = next_i;
+              offset = next;
+            }
+          }
+        }
+      }
+
+      return ret;
+    }
+
     void destory_pending() {
       std::unordered_set < Node * > s;
       for (int i = 0; i < 1024; ++i) {
@@ -2224,7 +2557,7 @@ private:
         if (prev_size < 64) {
           int t_size=count_tree_size(node_prob_cur);
           if (t_size < 64) {
-            return;
+            return true;
           }
         }
         num_write_probability_trigger++;
@@ -2232,15 +2565,7 @@ private:
         int numKeysCollected = scan_and_destory_tree(
             node_prob_cur, &keys, &values); // pass the (address) of the ptr
         if (numKeysCollected < 0) {
-          for (int x = 0; x < numKeysCollected; x++) {
-            delete keys; // keys[x] stores keys
-            delete values;
-          }
-          RT_DEBUG("collectKey for adjusting node %p -- one Xlock fails; quit "
-                   "rebuild",
-                   node);; // give up rebuild on this node (most likely other threads have
-          // done it for you already)
-          return;
+          return true;
         }
 #if COLLECT_TIME
         auto end_time_scan = std::chrono::high_resolution_clock::now();
@@ -2310,7 +2635,12 @@ private:
                    path[i - 1]);
           node_prob_prev->items[pos].comp.child = new_node;
           node_prob_prev->items[pos].writeUnlock();
-          if(cool_select_distribution(getGen())){
+          if(allocated>memory_budget_){
+            std::cout << "allocated > memory_budget_, allocated: "<<allocated<< std::endl;
+            compress_cv_.notify_one();
+          }
+          if(new_node->num_items>=1024*1024&&cool_select_distribution(getGen())){
+            std::cout << "push_to_cooling_pool, new_node: "<<new_node<< std::endl;
             push_to_cooling_pool(node_prob_prev,new_node);
           }
           adjustsuccess++;
