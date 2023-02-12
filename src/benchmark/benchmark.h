@@ -133,11 +133,13 @@ public:
         tbb::parallel_sort(keys, keys + table_size);
         auto last = std::unique(keys, keys + table_size);
         table_size = last - keys;
-        std::shuffle(keys, keys + table_size, gen);
+        //std::shuffle(keys, keys + table_size, gen);
       }
 
       init_table_size = init_table_ratio * table_size;
       std::cout << "Table size is " << table_size << ", Init table size is " << init_table_size << std::endl;
+
+      std::shuffle(keys+init_table_size, keys + table_size, gen);
 
       for (auto j = 0; j < 10; j++) {
         std::cout << keys[j] << " ";
