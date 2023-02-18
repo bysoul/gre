@@ -2,6 +2,9 @@
 #include "./alex/alex.h"
 #include "./alexol/alex.h"
 #include "./artsync/artolc.h"
+#include "./masstree/masstree.h"
+#include "./finedex/finedex.h"
+#include "./xindex/xindex.h"
 /*#include "./artsync/artrowex.h"
 #include "./artsync/artolc.h"
 #include "./artsync/artunsync.h"
@@ -11,6 +14,7 @@
 #include "./hot/hotrowex.h"*/
 #include "./lipp/lipp.h"
 #include "./lippol/lippol.h"
+#include "./lipp_probability_t/lipp_prob_t.h"
 #include "./lipp_probability/lipp_prob.h"
 #include "./lipp_p/lipp_p.h"
 /*#include "pgm/pgm.h"
@@ -26,11 +30,18 @@ indexInterface<KEY_TYPE, PAYLOAD_TYPE> *get_index(std::string index_type) {
   indexInterface<KEY_TYPE, PAYLOAD_TYPE> *index;
   if (index_type == "alexol") {
     index = new alexolInterface<KEY_TYPE, PAYLOAD_TYPE>;
-  }else if(index_type == "alex") {
-    index = new alexInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }else if (index_type == "artolc") {
     index = new ARTOLCInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }else if (index_type == "xindex") {
+    index = new xindexInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }else if (index_type == "finedex") {
+    index = new finedexInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  } else if (index_type == "masstree") {
+    index = new MasstreeInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }
+  /*else if(index_type == "alex") {
+    index = new alexInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }*/
   /*else if (index_type == "btreeolc") {
     index = new BTreeOLCInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }*/
@@ -78,6 +89,9 @@ indexInterface<KEY_TYPE, PAYLOAD_TYPE> *get_index(std::string index_type) {
   }
   else if (index_type == "lipp_prob") {
     index = new LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }
+  else if (index_type == "lipp_prob_t") {
+    index = new LIPPPROBTInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }
   else if (index_type == "lipp_prob_check64") {
     index = new LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>;

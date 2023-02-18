@@ -65,7 +65,25 @@ class Benchmark {
     KEY_TYPE *keys;
     std::pair <KEY_TYPE, PAYLOAD_TYPE> *init_key_values;
     std::vector <std::pair<Operation, KEY_TYPE>> operations;
+    class TG{
+
+    public:
+        using result_type =int;
+        int operator()(){
+          return 345234642;
+        }
+        int min(){
+          return 0;
+        }
+        int max(){
+          return 1000;
+        }
+        void seed(uint64_t s){
+
+        }
+    };
     std::mt19937 gen;
+    //TG gen;
 
     struct Stat {
         std::vector<double> latency;
@@ -133,13 +151,18 @@ public:
         tbb::parallel_sort(keys, keys + table_size);
         auto last = std::unique(keys, keys + table_size);
         table_size = last - keys;
-        //std::shuffle(keys, keys + table_size, gen);
+        std::shuffle(keys, keys + table_size, gen);
       }
 
       init_table_size = init_table_ratio * table_size;
       std::cout << "Table size is " << table_size << ", Init table size is " << init_table_size << std::endl;
 
-      std::shuffle(keys+init_table_size, keys + table_size, gen);
+      /*std::shuffle(keys+init_table_size, keys +init_table_size+ (table_size-init_table_size)/3, gen);
+      std::shuffle(keys + init_table_size+(table_size-init_table_size)/3, keys + init_table_size + (table_size-init_table_size)*2/3, gen);
+      std::shuffle(keys + init_table_size+(table_size-init_table_size)*2/3, keys + table_size, gen);*/
+
+      //std::shuffle(keys+init_table_size, keys +table_size, gen);
+      std::cout << keys[table_size-1] << " ";
 
       for (auto j = 0; j < 10; j++) {
         std::cout << keys[j] << " ";
@@ -525,14 +548,19 @@ public:
           thread_num = stoi(t);
           index_type = s;
           index_t *index;
+          /*for(int ii=0;ii<11;ii++){
+            lipp_prob::max_ratio=ii;
+            std::cout <<"MMMMMMMMMM"<<lipp_prob::max_ratio<< std::endl;
+
+          }*/
           prepare(index, keys);
+          run(index);
+          delete index;
 
           // perf
           /*BenchmarkParameters paramsP;
           paramsP.setParam("type","origin");
           PerfEventBlock e(operations_num/thread_num,paramsP);*/
-          run(index);
-          delete index;
         }
       }
     }

@@ -66,7 +66,7 @@
 
 #define LITTLEENDIAN 1
 #define BITS_PER_KEY 8
-#define K 2
+#define Kk 2
 
 #define SECONDARY_INDEX_TYPE 1
 

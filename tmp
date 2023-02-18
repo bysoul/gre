@@ -1,0 +1,8 @@
+#!/bin/bash
+cd ./build
+array=(1 4 8 16 24 36 48)
+
+for(( i=0;i<${#array[@]};i++))
+do
+  ./microbench --keys_file=../data/datasets/covid --keys_file_type=binary --read=1 --insert=0 --operations_num=200000000 --table_size=-1 --init_table_ratio=1 --output_path=./final/covidro.txt --thread_num="${array[i]}" --memory=1 --index=lipp_prob
+done

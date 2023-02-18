@@ -1,5 +1,5 @@
-#ifndef __LIPP_PROB_H__
-#define __LIPP_PROB_H__
+#ifndef __LIPP_PROB_H__T
+#define __LIPP_PROB_H__T
 
 #include <random>
 #include "concurrency.h"
@@ -30,13 +30,11 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-namespace lipp_prob {
+namespace lipp_prob_t {
 
 static thread_local int skip_counter = 0;
 static std::atomic_int64_t allocated = 0;
-static std::atomic_int64_t compressed = 0;
-static std::atomic_int64_t freed = 0;
-static int max_ratio = 0;
+static int max_ratio=0;
 
 // runtime assert
 #define RT_ASSERT(expr)                                                        \
@@ -88,7 +86,7 @@ class LIPP {
     static_assert(std::is_arithmetic<T>::value,
     "LIPP key type must be numeric.");
 
-    inline double compute_gap_count(int size) {
+    inline int compute_gap_count(int size) {
       if (size >= 1000000)
         return 1;
       if (size >= 100000)
@@ -96,14 +94,14 @@ class LIPP {
       return 5;
     }
 
-    inline double compute_max_ratio(int size) {
-      if (size >= 1500000)
-        return 1.5;
+    inline int compute_max_ratio(int size) {
       if (size >= 1000000)
-        return 1;
+        return 2;
       if (size >= 100000)
-        return 0;
-      return 0;
+        return 3;
+      if(size >= 1000)
+        return 4;
+      return 8;
     }
 
     struct Node;
@@ -168,14 +166,6 @@ public:
           mThreadWantsToAdvance = (currentFreeList.size() % 64u) == 0;
         }
 
-        void scheduleForDeletionX(Node *pointer) {
-          assert(mLocalEpoch != 3);
-          std::vector < Node * > &currentFreeList =
-              mFreeLists[mLocalEpoch];
-          currentFreeList.emplace_back(pointer);
-          mThreadWantsToAdvance = (currentFreeList.size() % 64u) == 0;
-        }
-
         uint32_t getLocalEpoch() const {
           return mLocalEpoch.load(std::memory_order_acquire);
         }
@@ -200,8 +190,6 @@ public:
               mFreeLists[epoch];
           for (Node *node: previousFreeList) {
             if (node->is_two) {
-              RT_ASSERT(node->build_size == 2);
-              RT_ASSERT(node->num_items == 8);
               node->size = 2;
               //node->num_inserts = node->num_insert_to_data = 0;
               for (int i = 0; i < node->num_items; i++) node->items[i].typeVersionLockObsolete.store(0b100);
@@ -221,8 +209,6 @@ public:
         uint32_t NEXT_EPOCH[3] = {1, 2, 0};
         uint32_t PREVIOUS_EPOCH[3] = {2, 0, 1};
 
-        LIPP<T, P> *tree;
-        std::array<std::vector<Node *>, 3> gFreeLists;
         std::atomic <uint32_t> mCurrentEpoch;
         tbb::enumerable_thread_specific <
         ThreadSpecificEpochBasedReclamationInformation,
@@ -232,12 +218,7 @@ public:
             mThreadSpecificInformations;
 
         EpochBasedMemoryReclamationStrategy(LIPP<T, P> *index)
-            : mCurrentEpoch(0), tree(index), mThreadSpecificInformations(index) {}
-        ~EpochBasedMemoryReclamationStrategy(){
-          for (uint32_t i = 0; i < 3; ++i) {
-            freeForEpochG(i);
-          }
-        }
+            : mCurrentEpoch(0), mThreadSpecificInformations(index) {}
 
     public:
         static EpochBasedMemoryReclamationStrategy *getInstance(LIPP<T, P> *index) {
@@ -252,41 +233,9 @@ public:
           currentMemoryInformation.enter(currentEpoch);
           if (currentMemoryInformation.doesThreadWantToAdvanceEpoch() &&
               canAdvance(currentEpoch)) {
-            bool ret = mCurrentEpoch.compare_exchange_strong(currentEpoch,
-                                                             NEXT_EPOCH[currentEpoch]);
-            if (ret) {
-              freeForEpochG(NEXT_EPOCH[mCurrentEpoch.load(std::memory_order_acquire)]);
-            }
+            mCurrentEpoch.compare_exchange_strong(currentEpoch,
+                                                  NEXT_EPOCH[currentEpoch]);
           }
-        }
-
-        void addG(Node *pointer) {
-          uint32_t currentEpoch = mCurrentEpoch.load(std::memory_order_acquire);
-          std::vector < Node * > &currentFreeList = gFreeLists[mCurrentEpoch];
-          currentFreeList.emplace_back(pointer);
-        }
-
-        void freeForEpochG(uint32_t epoch) {
-          std::vector < Node * > &previousFreeList =
-              gFreeLists[epoch];
-          for (Node *node: previousFreeList) {
-            //std::cout<<"freeForEpochG"<<node<<std::endl;
-            if (node->is_two) {
-              RT_ASSERT(node->build_size == 2);
-              RT_ASSERT(node->num_items == 8);
-              node->size = 2;
-              //node->num_inserts = node->num_insert_to_data = 0;
-              for (int i = 0; i < node->num_items; i++) node->items[i].typeVersionLockObsolete.store(0b100);
-              for (int i = 0; i < node->num_items; i++) node->items[i].entry_type = 0;
-              tree->pending_two[omp_get_thread_num()].push(node);
-            } else {
-              freed+=node->num_items*sizeof(Item);
-              freed+=sizeof(Node);
-              tree->delete_items(node->items, node->num_items);
-              tree->delete_nodes(node, 1);
-            }
-          }
-          previousFreeList.resize(0u);
         }
 
         bool canAdvance(uint32_t currentEpoch) {
@@ -344,7 +293,7 @@ public:
           destroy_tree(node);
         }
         std::cout << std::to_string(allocated.load()) << std::endl;
-        std::cout << pending_two[0].size() << std::endl;
+        std::cout <<pending_two[0].size()<< std::endl;
 
         if (!QUIET) {
           printf("initial memory pool size = %lu\n",
@@ -362,7 +311,8 @@ public:
 
       dummy_head_.next_ = &dummy_tail_;
       dummy_tail_.prev_ = &dummy_head_;
-      pool_size_ = 0;
+      pool_size_=0;
+
 
 
       if (memory_budget_ == 0) {
@@ -371,7 +321,7 @@ public:
         memory_budget_ = pages * page_size;
       }
       std::cout << "memory_budget: " << memory_budget_ << std::endl;
-      th = std::thread(&lipp_prob::LIPP<T, P>::threadFunction, this);
+      th = std::thread(&lipp_prob_t::LIPP<T, P>::threadFunction, this);
     }
 
     ~LIPP() {
@@ -380,14 +330,13 @@ public:
       exitSignal = 1;
       compress_cv_.notify_one();
       th.join();
-      delete ebr;
-      std::cout << "pool " << pool_size_ << std::endl;
-      std::cout << "freed " << freed << std::endl;
-      std::cout << "compressed " << compressed << std::endl;
-      std::cout << "total_size " << total_size() << std::endl;
+      std::cout << std::to_string(allocated.load()) << std::endl;
       destroy_tree(root);
       root = NULL;
+      std::cout << std::to_string(allocated.load()) << std::endl;
       destory_pending();
+      delete ebr;
+
       ListNode *cur = dummy_head_.next_;
       while (cur != &dummy_tail_) {
         ListNode *temp = cur->next_;
@@ -400,20 +349,6 @@ public:
 
     void insert(const V &v) { insert(v.first, v.second); }
 
-    void show() {
-      for (int i = 0; i < root->num_items; i++) {
-        if (root->items[i].entry_type != 1)
-          std::cout << "root: " << root->items[i].comp.data.key << std::endl;
-        else {
-          for (int j = 0; j < root->items[i].comp.child->num_items; j++) {
-            if (root->items[i].comp.child->items[j].entry_type == 2)
-              std::cout << "child: " << root->items[i].comp.child->items[j].comp.data.key
-                        << root->items[i].comp.child->items[j].comp.data.value << std::endl;
-          }
-        }
-      }
-    }
-
     void insert(const T &key, const P &value) {
       EpochGuard guard(this);
       // root = insert_tree(root, key, value);
@@ -421,80 +356,27 @@ public:
       RT_DEBUG("Insert_tree(%d): success/fail? %d", key, state);
     }
 
-    int get_first_key_from_node(Node *node, T *key) {
-      //std::cout<<"get_first_key_from_node"<<node<< std::endl;
-      //std::cout<<"get_first_key_from_node"<<node->num_items<< std::endl;
-      bool needRestart = false;
-      uint64_t versionItem;
-      if (needRestart) {
-        return -1;
-      }
-      bool ret = 0;
-      for (int i = 0; i < node->num_items; i++) {
-        versionItem = node->items[i].readLockOrRestart(needRestart);
-        if (needRestart) {
-          return -1;
-        }
+    T get_first_key_from_node(Node *node) {
+      for (int i = 0; i < node->build_size; i++) {
         if (node->items[i].entry_type == 0) {
-          node->items[i].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart) {
-            return -1;
-          }
           continue;
         } else if (node->items[i].entry_type == 1) {
-          Node *child = node->items[i].comp.child;
-          node->items[i].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart) {
-            return -1;
-          }
-          ret = get_first_key_from_node(child, key);
-          break;
-        } else if (node->items[i].entry_type == 2) {
-          *key = node->items[i].comp.data.key;
-          node->items[i].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart) {
-            return -1;
-          }
-          break;
+          return get_first_key_from_node(node->items[i].comp.child);
+        } else {
+          return node->items[i].comp.data.key;
         }
       }
-      //std::cout<<"get_first_key_from_node"<<node<< std::endl;
-      //std::cout<<"get_first_key_from_node  ret "<<*key<< std::endl;
-      return 0;
     }
 
     int get_real_pos_from_compressed_node(Node *node, int tmp_pos, T key) {
       int lo = (tmp_pos) <= (compress_epsilon) ? 0 : ((tmp_pos) - (compress_epsilon));
-      int hi = (tmp_pos) + (compress_epsilon) + 2 >= (node->num_items - 1) ? (node->num_items - 1) : (tmp_pos) +
-                                                                                                     (compress_epsilon) +
-                                                                                                     2;
+      int hi = (tmp_pos) + (compress_epsilon) + 2 >= (node->build_size) ? (node->build_size) : (tmp_pos) +
+                                                                                               (compress_epsilon) + 2;
       while (lo < hi) {
         int mid = lo + (hi - lo) / 2;
-        bool needRestart = false;
-        uint64_t versionItem = node->items[mid].readLockOrRestart(needRestart);
-        if (needRestart) {
-          return -1;
-        }
-        T mid_key;
-        if (node->items[mid].entry_type == 2) {
-          mid_key = node->items[mid].comp.data.key;
-          node->items[mid].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart) {
-            return -1;
-          }
-        } else if (node->items[mid].entry_type == 1) {
-          Node *child = node->items[mid].comp.child;
-          node->items[mid].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart) {
-            return -1;
-          }
-          int ret = get_first_key_from_node(child, &mid_key);
-          if (ret < 0) {
-            return -1;
-          }
-        } else {
-          RT_ASSERT(node->items[mid].entry_type == 1 || node->items[mid].entry_type == 2);
-        }
+        T mid_key =
+            node->items[mid].entry_type == 2 ? node->items[mid].comp.data.key : get_first_key_from_node(
+                node->items[mid].comp.child);
         if (key > mid_key) {
           lo = mid + 1;
         } else {
@@ -535,72 +417,61 @@ public:
 
         if (node->items[pos].entry_type == 1) { // 1 means child
           if (node->last_adjust_type == 3) {
-            node->items[pos].readUnlockOrRestart(versionItem, needRestart);
-            if (needRestart)
-              goto restart;
-            int compress_pos = get_real_pos_from_compressed_node(node, pos, key);
-            if (compress_pos < 0) {
-              goto restart;
-            }
-            versionItem = node->items[compress_pos].readLockOrRestart(needRestart);
-            if (needRestart)
-              goto restart;
-            if (node->items[compress_pos].entry_type == 2) {
-              if (node->items[compress_pos].comp.data.key != key) {
+            pos = get_real_pos_from_compressed_node(node, pos, key);
+            if (node->items[pos].entry_type == 2) {
+              if (node->items[pos].comp.data.key != key) {
                 ret = false;
               } else {
-                value = node->items[compress_pos].comp.data.value;
+                value = node->items[pos].comp.data.value;
                 ret = true;
               }
-              node->items[compress_pos].readUnlockOrRestart(versionItem, needRestart);
+              node->items[pos].readUnlockOrRestart(versionItem, needRestart);
               if (needRestart)
                 goto restart;
               break;
             } else {
-              pos = compress_pos;
-            }
-          }
-          parent = node;
-          node = node->items[pos].comp.child;
+              parent = node;
+              node = node->items[pos].comp.child;
 
-          parent->items[pos].readUnlockOrRestart(versionItem, needRestart);
-          if (needRestart)
-            goto restart;
+              parent->items[pos].readUnlockOrRestart(versionItem, needRestart);
+              if (needRestart)
+                goto restart;
+            }
+          } else {
+            parent = node;
+            node = node->items[pos].comp.child;
+
+            parent->items[pos].readUnlockOrRestart(versionItem, needRestart);
+            if (needRestart)
+              goto restart;
+          }
         } else { // the entry is a data or empty
           if (node->items[pos].entry_type == 0) { // 0 means empty
             ret = false;
             break;
           } else { // 2 means data
+
             if (node->items[pos].comp.data.key != key) {
               if (node->last_adjust_type == 3) {
-                node->items[pos].readUnlockOrRestart(versionItem, needRestart);
-                if (needRestart)
-                  goto restart;
-                int compress_pos = get_real_pos_from_compressed_node(node, pos, key);
-                if (compress_pos < 0) {
-                  goto restart;
-                }
-                versionItem = node->items[compress_pos].readLockOrRestart(needRestart);
-                if (needRestart)
-                  goto restart;
-                if (node->items[compress_pos].entry_type == 1) {
-                  parent = node;
-                  node = node->items[compress_pos].comp.child;
-                  parent->items[compress_pos].readUnlockOrRestart(versionItem, needRestart);
-                  if (needRestart)
-                    goto restart;
-                  continue;
-                } else {
-                  if (node->items[compress_pos].comp.data.key != key) {
+                pos = get_real_pos_from_compressed_node(node, pos, key);
+                if (node->items[pos].entry_type == 2) {
+                  if (node->items[pos].comp.data.key != key) {
                     ret = false;
                   } else {
-                    value = node->items[compress_pos].comp.data.value;
+                    value = node->items[pos].comp.data.value;
                     ret = true;
                   }
-                  node->items[compress_pos].readUnlockOrRestart(versionItem, needRestart);
+                  node->items[pos].readUnlockOrRestart(versionItem, needRestart);
                   if (needRestart)
                     goto restart;
                   break;
+                } else {
+                  parent = node;
+                  node = node->items[pos].comp.child;
+
+                  parent->items[pos].readUnlockOrRestart(versionItem, needRestart);
+                  if (needRestart)
+                    goto restart;
                 }
               } else {
                 RT_ASSERT(node->items[pos].comp.data.key == key);
@@ -825,22 +696,6 @@ public:
       destroy_tree(root);
       bulk_args args = {num_keys, 0.001, timeSinceEpochNanosec(), 1, 1};
       root = build_tree_bulk(keys, values, args);
-      /*for (int i = 0; i < root->num_items; i++) {
-        if (root->items[i].entry_type == 1
-            && root->items[i].comp.child->num_items >= 64) {
-          //std::cout << "push_to_cooling_pool, new_node: " << root->items[i].comp.child << std::endl;
-          push_to_cooling_pool(root, root->items[i].comp.child);
-        }
-      }*/
-      /*push_to_cooling_pool(nullptr, root);
-      compress_cv_.notify_one();
-      yield(4);
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-      compress_cv_.notify_one();
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-      for(int i=0;i<root->num_items;i++){
-        std::cout << "root: " << root->items[i].comp.data.key << std::endl;
-      }*/
       delete keys;
       delete values;
     }
@@ -1124,7 +979,7 @@ private:
           //std::cerr << "allocate " << num << " element(s)" << " of size " << sizeof(Type) << std::endl;
           pointer ret = (pointer)(::operator new(num * sizeof(Type)));
           //std::cerr << " allocated at: " << (void*)ret << std::endl;
-          allocated += num * sizeof(Type);
+          //allocated += num * sizeof(Type);
           //std::cerr << "allocated: " << allocated/(1024*1024) << " MB" << endl;
           return ret;
         }
@@ -1155,7 +1010,7 @@ private:
                      << " at: " << (void*)p << std::endl;
 #endif
           ::operator delete((void *) p);
-          allocated -= num * sizeof(Type);
+          //allocated -= num * sizeof(Type);
         }
     };
 
@@ -1188,7 +1043,7 @@ private:
       return false;
     }*/
 
-    std::allocator <Node> node_allocator;
+    std::allocator<Node> node_allocator;
 
     std::atomic<long long> num_read_probability_trigger = 0;
     std::atomic<long long> num_write_probability_trigger = 0;
@@ -1203,9 +1058,9 @@ private:
     std::atomic<int> exitSignal = 0;
     std::thread th;
     struct alignas(64) AlignedStruct {
-      int field = 0;
+      int field=0;
     };
-    std::array<AlignedStruct, 1024> al;
+    std::array<AlignedStruct,1024> al;
 
     long long memory_budget_ = 0;
 
@@ -1238,8 +1093,6 @@ private:
     std::bernoulli_distribution cool_select_distribution{0.1};
 
     void delete_from_cooling_pool(Node *ptr) {
-      //std::cout << "delete_from_cooling_pool, new_node: " << ptr << std::endl;
-
       mu_.lock();
       auto it = map_.find(ptr);
       if (it == map_.end()) {
@@ -1330,115 +1183,28 @@ private:
 
     std::mutex compress_mu_;
     std::condition_variable compress_cv_;
-    int compress_epsilon = 4096;
+    int compress_epsilon = 512;
 
     void threadFunction() {
       std::cout << "Compress Thread Start" << std::endl;
 
       std::unique_lock <std::mutex> latch(compress_mu_);
       while (exitSignal == 0) {
-        //std::cout << "Compress Thread Start1" << std::endl;
         compress_cv_.wait(latch);
-        //std::cout << "Compress Thread Start2" << std::endl;
+        std::cout << "Doing Compress" << std::endl;
         NodePair nodePair;
-        if (exitSignal == 1) {
-          while(victim_from_cooling_pool(&nodePair)){
-            //std::cout << "Doing Compress" << std::endl;
-            Node *child = nodePair.child_;
-            std::vector <T> *keys;
-            std::vector <P> *values;
-            int numKeysCollected = scan_and_destory_tree2(
-                child, &keys, &values);
-            if (numKeysCollected < 0) {
-              continue;
-            }
-
-            int prev_size = child->build_size;
-            uint64_t prev_build_time = child->build_time;
-            uint64_t cur_time = timeSinceEpochNanosec();
-            long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
-            //bulk_args args={numKeysCollected, speed, cur_time, 1,speed/prev_speed};
-
-
-            Node *new_node = new_nodes(1);
-            OptimalPiecewiseLinearModel<T, P> opt(std::numeric_limits<int>::max());
-            opt.add_point((*keys)[0], 0);
-            int start = 0;
-            //int segment_idx=0;
-            for (int i = 1; i < numKeysCollected; ++i) {
-              bool add_success = opt.add_point((*keys)[i], i - start);  // alwayse start from 0 for each segment
-              RT_ASSERT(add_success);
-            }
-            typename OptimalPiecewiseLinearModel<T, P>::CanonicalSegment cs = opt.get_segment();
-            //pgm auto[cs_slope, cs_intercept] = cs.get_floating_point_segment(cs.get_first_x());
-            auto[cs_slope, cs_intercept] = cs.get_floating_point_segment(0);
-            //new_node->model.params[segment_idx]=model_param(cs_slope,cs_intercept);
-            new_node->model.a = cs_slope;
-            new_node->model.b = cs_intercept;
-            //segment_idx++;
-            //start = i;
-            //opt.add_point((*keys)[i], i-start);
-
-            new_node->is_two = 0;
-            new_node->build_size = numKeysCollected;
-            new_node->size = numKeysCollected;
-            new_node->fixed = 0;
-            //new_node->num_inserts = child->num_insert_to_data = 0;
-            new_node->num_items = numKeysCollected;
-            if (numKeysCollected > 1e6) {
-              new_node->fixed = 1;
-            }
-            new_node->items = new_items(new_node->num_items);
-            if (new_node->build_size < 64) {
-              new_node->p_conflict = 1 / (0.1 * 2 * 64);
-            } else {
-              new_node->p_conflict = 1 / (0.1 * 2 * new_node->build_size);
-            }
-            new_node->conflict_distribution = std::bernoulli_distribution(new_node->p_conflict);
-            new_node->build_time = cur_time;
-            new_node->speed = speed;
-            new_node->last_adjust_type = 3;
-            for (int i = 0; i < numKeysCollected; ++i) {
-              new_node->items[i].entry_type = 2;
-              new_node->items[i].comp.data.key = (*keys)[i];
-              new_node->items[i].comp.data.value = (*values)[i];
-            }
-            int retryLockCount = 0;
-            retryLock1:
-            if (retryLockCount++)
-              yield(retryLockCount);
-
-            int pos = PREDICT_POS(nodePair.parent_, (*keys)[0]);
-
-            bool needRetry = false;
-
-            nodePair.parent_->items[pos].writeLockOrRestart(needRetry);
-            if (needRetry) {
-              goto retryLock1;
-            }
-            nodePair.parent_->items[pos].comp.child = new_node;
-            nodePair.parent_->items[pos].writeUnlock();
-            compressed+=numKeysCollected;
-          }
-          return;
-        }
-        //std::cout << "Doing Compress" << std::endl;
-
         auto ret = victim_from_cooling_pool(&nodePair);
         if (ret == false) {
-          //std::cout << "Nothing Compress" << std::endl;
           continue;
         }
-        //std::cout << "Doing Compress" << std::endl;
         Node *child = nodePair.child_;
         std::vector <T> *keys;
         std::vector <P> *values;
-        int numKeysCollected = scan_and_destory_tree2(
+        int numKeysCollected = scan_and_destory_tree(
             child, &keys, &values);
         if (numKeysCollected < 0) {
           continue;
         }
-
         int prev_size = child->build_size;
         uint64_t prev_build_time = child->build_time;
         uint64_t cur_time = timeSinceEpochNanosec();
@@ -1447,7 +1213,7 @@ private:
 
 
         Node *new_node = new_nodes(1);
-        OptimalPiecewiseLinearModel<T, P> opt(std::numeric_limits<int>::max());
+        OptimalPiecewiseLinearModel<T, P> opt(compress_epsilon);
         opt.add_point((*keys)[0], 0);
         int start = 0;
         //int segment_idx=0;
@@ -1484,7 +1250,7 @@ private:
         new_node->build_time = cur_time;
         new_node->speed = speed;
         new_node->last_adjust_type = 3;
-        for (int i = 0; i < numKeysCollected; ++i) {
+        for (int i = 1; i < numKeysCollected; ++i) {
           new_node->items[i].entry_type = 2;
           new_node->items[i].comp.data.key = (*keys)[i];
           new_node->items[i].comp.data.value = (*values)[i];
@@ -1504,97 +1270,9 @@ private:
         }
         nodePair.parent_->items[pos].comp.child = new_node;
         nodePair.parent_->items[pos].writeUnlock();
-        compressed+=numKeysCollected;
-        //std::cout << "numKeysCollected: " << numKeysCollected << std::endl;
-        //std::cout << "numKeysCollected: " << new_node << std::endl;
-        //std::cout << "Compress Thread Done" << std::endl;
         //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
       std::cout << "Compress Thread End" << std::endl;
-    }
-
-    void compress() {
-      std::cout << "Begin Compress" << std::endl;
-      NodePair nodePair;
-      auto ret = victim_from_cooling_pool(&nodePair);
-      if (ret == false) {
-        return;
-      }
-      Node *child = nodePair.child_;
-      std::vector <T> *keys;
-      std::vector <P> *values;
-      int numKeysCollected = scan_and_destory_tree(
-          child, &keys, &values);
-      if (numKeysCollected < 0) {
-        return;
-      }
-      int prev_size = child->build_size;
-      uint64_t prev_build_time = child->build_time;
-      uint64_t cur_time = timeSinceEpochNanosec();
-      long double speed = (long double) (numKeysCollected - prev_size) / (cur_time - prev_build_time + 1);
-      //bulk_args args={numKeysCollected, speed, cur_time, 1,speed/prev_speed};
-
-
-      Node *new_node = new_nodes(1);
-      OptimalPiecewiseLinearModel<T, P> opt(compress_epsilon);
-      opt.add_point((*keys)[0], 0);
-      int start = 0;
-      //int segment_idx=0;
-      for (int i = 1; i < numKeysCollected; ++i) {
-        bool add_success = opt.add_point((*keys)[i], i - start);  // alwayse start from 0 for each segment
-        RT_ASSERT(add_success);
-      }
-      typename OptimalPiecewiseLinearModel<T, P>::CanonicalSegment cs = opt.get_segment();
-      //pgm auto[cs_slope, cs_intercept] = cs.get_floating_point_segment(cs.get_first_x());
-      auto[cs_slope, cs_intercept] = cs.get_floating_point_segment(0);
-      //new_node->model.params[segment_idx]=model_param(cs_slope,cs_intercept);
-      new_node->model.a = cs_slope;
-      new_node->model.b = cs_intercept;
-      //segment_idx++;
-      //start = i;
-      //opt.add_point((*keys)[i], i-start);
-
-      new_node->is_two = 0;
-      new_node->build_size = numKeysCollected;
-      new_node->size = numKeysCollected;
-      new_node->fixed = 0;
-      //new_node->num_inserts = child->num_insert_to_data = 0;
-      new_node->num_items = numKeysCollected;
-      if (numKeysCollected > 1e6) {
-        new_node->fixed = 1;
-      }
-      new_node->items = new_items(new_node->num_items);
-      if (new_node->build_size < 64) {
-        new_node->p_conflict = 1 / (0.1 * 2 * 64);
-      } else {
-        new_node->p_conflict = 1 / (0.1 * 2 * new_node->build_size);
-      }
-      new_node->conflict_distribution = std::bernoulli_distribution(new_node->p_conflict);
-      new_node->build_time = cur_time;
-      new_node->speed = speed;
-      new_node->last_adjust_type = 3;
-      for (int i = 1; i < numKeysCollected; ++i) {
-        new_node->items[i].entry_type = 2;
-        new_node->items[i].comp.data.key = (*keys)[i];
-        new_node->items[i].comp.data.value = (*values)[i];
-      }
-      int retryLockCount = 0;
-      retryLock:
-      if (retryLockCount++)
-        yield(retryLockCount);
-
-      int pos = PREDICT_POS(nodePair.parent_, (*keys)[0]);
-
-      bool needRetry = false;
-
-      nodePair.parent_->items[pos].writeLockOrRestart(needRetry);
-      if (needRetry) {
-        goto retryLock;
-      }
-      nodePair.parent_->items[pos].comp.child = new_node;
-      nodePair.parent_->items[pos].writeUnlock();
-      std::cout << "End Compress" << std::endl;
-
     }
 
     EpochBasedMemoryReclamationStrategy *initEbrInstance(LIPP<T, P> *index) {
@@ -1604,7 +1282,7 @@ private:
 
     Node *new_nodes(int n) {
       Node *p = node_allocator.allocate(n);
-      al[omp_get_thread_num()].field += n * sizeof(Node);
+      al[omp_get_thread_num()].field+=n*sizeof(Node);
       //node_allocator.construct(p);
       RT_ASSERT(p != NULL && p != (Node *) (-1));
       return p;
@@ -1612,7 +1290,7 @@ private:
 
     void delete_nodes(Node *p, int n) {
       node_allocator.deallocate(p, n);
-      al[omp_get_thread_num()].field -= n * sizeof(Node);
+      al[omp_get_thread_num()].field-=n*sizeof(Node);
     }
 
     void safe_delete_nodes(Node *p, int n) {
@@ -1621,11 +1299,11 @@ private:
       }
     }
 
-    std::allocator <Item> item_allocator;
+    std::allocator<Item> item_allocator;
 
     Item *new_items(int n) {
       Item *p = item_allocator.allocate(n);
-      al[omp_get_thread_num()].field += n * sizeof(Item);
+      al[omp_get_thread_num()].field+=n*sizeof(Item);
       for (int i = 0; i < n; ++i) {
         p[i].typeVersionLockObsolete.store(0b100);
         p[i].entry_type = 0;
@@ -1636,7 +1314,7 @@ private:
 
     void delete_items(Item *p, int n) {
       item_allocator.deallocate(p, n);
-      al[omp_get_thread_num()].field -= n * sizeof(Item);
+      al[omp_get_thread_num()].field-=n*sizeof(Item);
     }
 
     /// build an empty tree
@@ -1685,8 +1363,6 @@ private:
         pending_two[omp_get_thread_num()].pop();
 
       }
-      RT_ASSERT(node->build_size == 2);
-      RT_ASSERT(node->num_items == 8);
 
       const long double mid1_key = key1;
       const long double mid2_key = key2;
@@ -1707,11 +1383,6 @@ private:
       { // insert key1&value1
         int pos = PREDICT_POS(node, key1);
         //std::cout<<"insert key1&value1 "<<pos<<" "<<key1<<std::endl;
-        if(node->items[pos].entry_type != 0){
-          std::cout<<"node->items[pos].entry_type "<<pos<<std::endl;
-          std::cout<<"node->items[pos].entry_type "<<node<<std::endl;
-          std::cout<<"node->items[pos].entry_type "<<node->items[pos].entry_type<<std::endl;
-        }
         RT_ASSERT(node->items[pos].entry_type == 0);
         node->items[pos].entry_type = 2;
         node->items[pos].comp.data.key = key1;
@@ -1737,7 +1408,6 @@ private:
       node->build_time = _time;
       node->speed = _speed;
       node->last_adjust_type = _type;
-
       return node;
     }
 
@@ -2182,7 +1852,8 @@ private:
       uint64_t _time = args._time;
       int _type = args._type;
       //std::cout<<"build_tree_bulk_fmcd "<<std::to_string(args.ratio)<<std::endl;
-      double ratio = args.ratio < 1 ? 0 : (args.ratio - 1);
+      long double ratio = args.ratio < 1 ? 1 : args.ratio;
+      ratio = ratio > max_ratio ? max_ratio : ratio;
       //std::cout<<"build_tree_bulk_fmcd 0 "<<std::to_string(_size)<<std::endl;
       RT_ASSERT(_size > 1);
 
@@ -2216,9 +1887,9 @@ private:
           T *keys = &((*_keys)[begin]);
           P *values = &((*_values)[begin]);
           const int size = end - begin;
-          const double BUILD_GAP_CNT = compute_gap_count(size);
-          const double max_ratio = compute_max_ratio(size);
-          double tmp_ratio = ratio > max_ratio ? max_ratio : ratio;
+          const int BUILD_GAP_CNT = compute_gap_count(size);
+          const int max_ratio= compute_max_ratio(size);
+          double tmp_ratio=ratio>max_ratio?max_ratio:ratio;
           node->is_two = 0;
           node->build_size = size;
           node->size = size;
@@ -2242,7 +1913,7 @@ private:
           // should be less than 1 / U_T. So we added a small number (1e-6) to
           // U_T. In fact, it has only a negligible impact of the performance.
           {
-            int L = static_cast<int>(size * ( BUILD_GAP_CNT + 1 + tmp_ratio));
+            int L = size * (BUILD_GAP_CNT+ 1 );
             int i = 0;
             int D = 1;
             RT_ASSERT(D <= size - 1 - D);
@@ -2300,11 +1971,11 @@ private:
               node->num_items = L;
               //node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
               const double mid1_target =
-                  mid1_pos * static_cast<int>(BUILD_GAP_CNT + 1 +tmp_ratio) +
-                  static_cast<int>(BUILD_GAP_CNT + 1+tmp_ratio) / 2;
+                  mid1_pos * static_cast<int>(BUILD_GAP_CNT + 1) +
+                  static_cast<int>(BUILD_GAP_CNT + 1) / 2;
               const double mid2_target =
-                  mid2_pos * static_cast<int>(BUILD_GAP_CNT + 1+tmp_ratio) +
-                  static_cast<int>(BUILD_GAP_CNT + 1+tmp_ratio) / 2;
+                  mid2_pos * static_cast<int>(BUILD_GAP_CNT + 1) +
+                  static_cast<int>(BUILD_GAP_CNT + 1) / 2;
 
               node->model.a = (mid2_target - mid1_target) / (mid2_key - mid1_key);
               node->model.b = mid1_target - node->model.a * mid1_key;
@@ -2360,7 +2031,6 @@ private:
             }
           }
         }
-
       }
 
       return ret;
@@ -2672,27 +2342,6 @@ private:
       }
     }
 
-    void dfs2(Node *node, std::vector <T> *keys, std::vector <P> *values) {
-      for (int i = 0; i < node->num_items; i++) { // the i-th entry of the node now
-        if (node->items[i].entry_type == 2) { // means it is a data
-          keys->push_back(node->items[i].comp.data.key);
-          values->push_back(node->items[i].comp.data.value);
-        } else if (node->items[i].entry_type == 1) {
-          dfs2(node->items[i].comp.child, keys, values);
-        }
-      }
-      //std::cout<<"ebr->addG(node)"<<node<< std::endl;
-      if (node->is_two) {
-        RT_ASSERT(node->build_size == 2);
-        RT_ASSERT(node->num_items == 8);
-        node->size = 2;
-        //node->num_inserts = node->num_insert_to_data = 0;
-        ebr->addG(node);
-      } else {
-        ebr->addG(node);
-      }
-    }
-
     int count_tree_size(Node *_subroot) {
       std::list < Node * > bfs;
       bfs.push_back(_subroot);
@@ -2727,54 +2376,6 @@ private:
       return count;
     }
 
-    int scan_and_destory_tree2(
-        Node *_subroot, std::vector <T> **keys, std::vector <P> **values, // keys here is ptr to ptr
-        bool destory = true) {
-
-      std::list < Node * > bfs;
-      std::list < Item * > lockedItems;
-
-      bfs.push_back(_subroot);
-      bool needRestart = false;
-      //int count=0;
-
-      while (!bfs.empty()) {
-        Node *node = bfs.front();
-        bfs.pop_front();
-
-        for (int i = 0; i < node->num_items;
-             i++) { // the i-th entry of the node now
-          node->items[i].writeLockOrRestart(needRestart);
-
-          if (needRestart) {
-            // release locks on all locked items
-            for (auto &n: lockedItems) {
-              n->writeUnlock();
-            }
-            return -1;
-          }
-          lockedItems.push_back(&(node->items[i]));
-
-          if (node->items[i].entry_type == 1) { // child
-            bfs.push_back(node->items[i].comp.child);
-          }
-        }
-      } // end while
-
-
-
-      *keys = new std::vector<T>();
-      *values = new std::vector<P>();
-      (*keys)->reserve(_subroot->build_size);
-      (*values)->reserve(_subroot->build_size);
-      dfs2(_subroot, *keys, *values);
-
-      const int ESIZE = (*keys)->size();
-      //std::cout << "dfs ESIZE: " << std::to_string(ESIZE) << std::endl;
-
-      return ESIZE;
-    } // end scan_and_destory
-
     int scan_and_destory_tree(
         Node *_subroot, std::vector <T> **keys, std::vector <P> **values, // keys here is ptr to ptr
         bool destory = true) {
@@ -2803,12 +2404,24 @@ private:
           }
           lockedItems.push_back(&(node->items[i]));
 
+          /*if(node->items[i].entry_type == 2){
+            count++;
+          }else */
           if (node->items[i].entry_type == 1) { // child
             bfs.push_back(node->items[i].comp.child);
           }
         }
       } // end while
 
+      /*if(count<64){
+        for (auto &n: lockedItems) {
+          n->writeUnlock();
+        }
+        return -1;
+      }*/
+      /*typedef std::pair<int, Node *> Segment; // <begin, Node*>
+      std::stack <Segment> s;
+      s.push(Segment(0, _subroot));*/
 
 
       *keys = new std::vector<T>();
@@ -2820,6 +2433,61 @@ private:
       const int ESIZE = (*keys)->size();
       //std::cout << "dfs ESIZE: " << std::to_string(ESIZE) << std::endl;
 
+      /*while (!s.empty()) {
+        int begin = s.top().first;
+        Node *node = s.top().second;
+
+        const int SHOULD_END_POS = begin + node->size;
+        RT_DEBUG("ADJUST: collecting keys at %p, SD_END_POS (%d)= begin (%d) + "
+                 "size (%d)",
+                 node, SHOULD_END_POS, begin, node->size.load());
+        s.pop();
+
+        int tmpnumkey = 0;
+
+        for (int i = 0; i < node->num_items;
+             i++) { // the i-th entry of the node now
+          if (node->items[i].entry_type == 2) { // means it is a data
+            (*keys)[begin] = node->items[i].comp.data.key;
+            (*values)[begin] = node->items[i].comp.data.value;
+            begin++;
+            tmpnumkey++;
+          } else if (node->items[i].entry_type == 1) {
+            RT_DEBUG("ADJUST: so far %d keys collected in this node",
+                     tmpnumkey);
+            s.push(Segment(begin,
+                           node->items[i].comp.child)); // means it is a child
+            RT_DEBUG("ADJUST: also pushed <begin=%d, a subtree at child %p> of "
+                     "size %d to stack",
+                     begin, node->items[i].comp.child,
+                     node->items[i].comp.child->size.load());
+            begin += node->items[i].comp.child->size;
+            RT_DEBUG("ADJUST: begin is updated to=%d", begin);
+          }
+        }
+
+        if (!(SHOULD_END_POS == begin)) {
+          RT_DEBUG("ADJUST Err: just finish working on %p: begin=%d; "
+                   "node->size=%d, node->num_items=%d, SHOULD_END_POS=%d",
+                   node, begin, node->size.load(), node->num_items.load(),
+                   SHOULD_END_POS);
+          // show();
+          RT_ASSERT(false);
+        }
+        RT_ASSERT(SHOULD_END_POS == begin);
+
+        if (destory) { // pass to memory reclaimation memory later; @BT
+          if (node->is_two) {
+            RT_ASSERT(node->build_size == 2);
+            RT_ASSERT(node->num_items == 8);
+            node->size = 2;
+            node->num_inserts = node->num_insert_to_data = 0;
+            safe_delete_nodes(node, 1);
+          } else {
+            safe_delete_nodes(node, 1);
+          }
+        }
+      } // end while*/
       return ESIZE;
     } // end scan_and_destory
 
@@ -2890,25 +2558,15 @@ private:
         } else if (node->items[pos].entry_type == 2) // 2 means existing entry has data already
         {
           if (node->last_adjust_type == 3) {
-            node->items[pos].readUnlockOrRestart(versionItem, needRestart);
-            if (needRestart)
-              goto restart;
-            int compress_pos = get_real_pos_from_compressed_node(node, pos, key);
-            if (compress_pos < 0) {
-              goto restart;
-            }
-            versionItem = node->items[compress_pos].readLockOrRestart(needRestart);
-            if (needRestart)
-              goto restart;
-            if (node->items[compress_pos].entry_type == 1) {
+            pos = get_real_pos_from_compressed_node(node, pos, key);
+            if (node->items[pos].entry_type == 1) {
               parent = node;
-              node = node->items[compress_pos].comp.child;
-              parent->items[compress_pos].readUnlockOrRestart(versionItem, needRestart);
+              node = node->items[pos].comp.child;
+
+              parent->items[pos].readUnlockOrRestart(versionItem, needRestart);
               if (needRestart)
                 goto restart;
               continue;
-            } else {
-              pos = compress_pos;
             }
           }
           node->items[pos].upgradeToWriteLockOrRestart(versionItem, needRestart);
@@ -2936,33 +2594,7 @@ private:
         } else // 1 means has a child, need to go down and see
         {
           if (node->last_adjust_type == 3) {
-            node->items[pos].readUnlockOrRestart(versionItem, needRestart);
-            if (needRestart)
-              goto restart;
-            int compress_pos = get_real_pos_from_compressed_node(node, pos, key);
-            if (compress_pos < 0) {
-              goto restart;
-            }
-            versionItem = node->items[compress_pos].readLockOrRestart(needRestart);
-            if (needRestart)
-              goto restart;
-            if (node->items[compress_pos].entry_type == 2) {
-              node->items[compress_pos].upgradeToWriteLockOrRestart(versionItem, needRestart);
-              if (needRestart) {
-                goto restart;
-              }
-              node->items[compress_pos].entry_type = 1;
-              node->items[compress_pos].comp.child =
-                  build_tree_two(key, value, node->items[compress_pos].comp.data.key,
-                                 node->items[compress_pos].comp.data.value,
-                                 node->speed / node->num_items, timeSinceEpochNanosec(), 1);
-
-              node->items[compress_pos].writeUnlock();
-              conflict_flag = true;
-              break;
-            } else {
-              pos = compress_pos;
-            }
+            pos = get_real_pos_from_compressed_node(node, pos, key);
           }
           parent = node;
           // RT_DEBUG("Child %p pos %d.", node, pos);
@@ -3120,23 +2752,15 @@ private:
                    path[i - 1]);
           node_prob_prev->items[pos].comp.child = new_node;
           node_prob_prev->items[pos].writeUnlock();
-          /*if (cool_select_distribution(getGen())) {
-            long allocated = 0;
-            for (int i = 0; i < 1024; i++) {
-              allocated += al[i].field;
-            }
-            if (allocated > 0) {
-              //std::cout << "allocated > memory_budget_, allocated: " << allocated << std::endl;
-              //compress_cv_.notify_all();
-              //compress();
-            }
+          /*if (allocated > memory_budget_) {
+            std::cout << "allocated > memory_budget_, allocated: " << allocated << std::endl;
+            compress_cv_.notify_one();
           }*/
-          //&& cool_select_distribution(getGen())
-          /*if ((!new_node->fixed) && new_node->num_items >= 64 ) {
-            //std::cout << "push_to_cooling_pool, new_node: " << new_node << std::endl;
+          /*if (new_node->build_size >= 1024 * 1024 * 64 && cool_select_distribution(getGen())) {
+            std::cout << "push_to_cooling_pool, new_node: " << new_node << std::endl;
             push_to_cooling_pool(node_prob_prev, new_node);
           }*/
-          //adjustsuccess++;
+          adjustsuccess++;
           RT_DEBUG("Adjusted success=%d", adjustsuccess);
         } else { // new node is the root, need to update it
           root = new_node;
