@@ -39,6 +39,10 @@ public:
 
   virtual long long memory_consumption() = 0; // bytes
 
+  virtual long adjust_num(){return 0;}; // bytes
+
+  virtual std::tuple<long,double,long> depth(){ return std::tuple<long,long,long>(0,0,0);}; // bytes
+
   virtual void print(Param *param = nullptr){};
 
   virtual ~indexInterface(){};
