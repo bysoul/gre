@@ -23,6 +23,14 @@ public:
 
     void print(Param *param = nullptr){ lipp.print_depth();}
 
+    long adjust_num(){
+      return lipp.adjust_num();
+    }
+
+    std::tuple<long,double,long> depth(){
+      return lipp.depth();
+    }
+
 private:
     lipp_prob::LIPP<KEY_TYPE, PAYLOAD_TYPE> lipp;
 };

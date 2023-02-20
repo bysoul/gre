@@ -830,6 +830,37 @@ public:
       return range_core_len<false>(results, 0, root, lower, len);
     }
 
+    long adjust_num(){
+      return num_write_probability_trigger;
+    }
+
+    std::tuple<long,double,long> depth(){
+      std::stack < Node * > s;
+      std::stack<int> d;
+      s.push(root);
+      d.push(1);
+
+      int max_depth = 1;
+      long sum_depth = 0, sum_nodes = 0;
+      while (!s.empty()) {
+        Node *node = s.top();
+        s.pop();
+        int depth = d.top();
+        d.pop();
+        for (int i = 0; i < node->num_items; i++) {
+          if (node->items[i].entry_type == 1) {
+            s.push(node->items[i].comp.child);
+            d.push(depth + 1);
+          } else if (node->items[i].entry_type == 2) {
+            max_depth = std::max(max_depth, depth);
+            sum_depth += depth;
+            sum_nodes++;
+          }
+        }
+      }
+      return std::tuple<long,double,long>(max_depth,double(sum_depth) / double(sum_nodes),sum_nodes);
+    }
+
     size_t total_size() const {
       std::stack < Node * > s;
       s.push(root);

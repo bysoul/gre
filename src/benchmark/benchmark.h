@@ -95,6 +95,10 @@ class Benchmark {
         uint64_t success_update = 0;
         uint64_t success_remove = 0;
         uint64_t scan_not_enough = 0;
+        uint64_t max_depth = 0;
+        double average_depth = 0;
+        uint64_t node_num = 0;
+        uint64_t adjust_num = 0;
 
         void clear() {
           latency.clear();
@@ -106,6 +110,10 @@ class Benchmark {
           success_update = 0;
           success_remove = 0;
           scan_not_enough = 0;
+          max_depth = 0;
+          average_depth = 0;
+          node_num=0;
+          adjust_num = 0;
         }
     } stat;
 
@@ -157,11 +165,10 @@ public:
       init_table_size = init_table_ratio * table_size;
       std::cout << "Table size is " << table_size << ", Init table size is " << init_table_size << std::endl;
 
-      /*std::shuffle(keys+init_table_size, keys +init_table_size+ (table_size-init_table_size)/3, gen);
-      std::shuffle(keys + init_table_size+(table_size-init_table_size)/3, keys + init_table_size + (table_size-init_table_size)*2/3, gen);
-      std::shuffle(keys + init_table_size+(table_size-init_table_size)*2/3, keys + table_size, gen);*/
+      /*std::shuffle(keys, keys + table_size/2, gen);
+      std::shuffle(keys + table_size/2, keys + table_size*3/4, gen);
+      std::shuffle(keys + table_size*3/4, keys + table_size, gen);*/
 
-      //std::shuffle(keys+init_table_size, keys +table_size, gen);
       std::cout << keys[table_size-1] << " ";
 
       for (auto j = 0; j < 10; j++) {
@@ -428,6 +435,12 @@ public:
       if (memory_record)
         stat.memory_consumption = index->memory_consumption();
 
+      stat.adjust_num= index->adjust_num();
+      auto depth_t=index->depth();
+      stat.max_depth=std::get<0>(depth_t);
+      stat.average_depth=std::get<1>(depth_t);
+      stat.node_num=std::get<2>(depth_t);
+
       index->print();
       print_stat();
 
@@ -490,7 +503,11 @@ public:
         ofile << "latency_sample" << ",";
         ofile << "data_shift" << ",";
         ofile << "pgm" << ",";
-        ofile << "error_bound" ",";
+        ofile << "error_bound" <<",";
+        ofile << "adjust_num" <<",";
+        ofile << "max_depth" <<",";
+        ofile << "average_depth" <<",";
+        ofile << "node_num" <<",";
         ofile << "table_size" << std::endl;
       }
 
@@ -534,6 +551,10 @@ public:
       ofile << data_shift << ",";
       ofile << stat.fitness_of_dataset << ",";
       ofile << error_bound << ",";
+      ofile << stat.adjust_num << ",";
+      ofile << stat.max_depth << ",";
+      ofile << stat.average_depth << ",";
+      ofile << stat.node_num << ",";
       ofile << table_size << std::endl;
       ofile.close();
 

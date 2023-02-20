@@ -98,10 +98,16 @@ class LIPP {
 
     inline double compute_max_ratio(int size) {
       if (size >= 1500000)
-        return 1.5;
+        return 2;
       if (size >= 1000000)
         return 1;
       if (size >= 100000)
+        return 0;
+      if (size >= 10000)
+        return 0;
+      if (size >= 1000)
+        return 0;
+      if (size >= 100)
         return 0;
       return 0;
     }
@@ -1028,6 +1034,37 @@ public:
       std::cout << "num_read_probability_trigger = " << std::to_string(num_read_probability_trigger) << std::endl;
       std::cout << "num_lower_64 = " << std::to_string(num_lower_64) << std::endl;
       std::cout << "==============================================" << std::endl;
+    }
+
+    long adjust_num(){
+      return num_write_probability_trigger;
+    }
+
+    std::tuple<long,double,long> depth(){
+      std::stack < Node * > s;
+      std::stack<int> d;
+      s.push(root);
+      d.push(1);
+
+      int max_depth = 1;
+      long sum_depth = 0, sum_nodes = 0;
+      while (!s.empty()) {
+        Node *node = s.top();
+        s.pop();
+        int depth = d.top();
+        d.pop();
+        for (int i = 0; i < node->num_items; i++) {
+          if (node->items[i].entry_type == 1) {
+            s.push(node->items[i].comp.child);
+            d.push(depth + 1);
+          } else if (node->items[i].entry_type == 2) {
+            max_depth = std::max(max_depth, depth);
+            sum_depth += depth;
+            sum_nodes++;
+          }
+        }
+      }
+      return std::tuple<long,double,long>(max_depth,double(sum_depth) / double(sum_nodes),sum_nodes);
     }
 
 private:

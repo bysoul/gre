@@ -21,6 +21,14 @@ public:
 
     long long memory_consumption() { return lipp.total_size(); }
 
+    long adjust_num(){
+      return lipp.adjust_num();
+    }
+
+    std::tuple<long,double,long> depth(){
+      return lipp.depth();
+    }
+
     void print(Param *param = nullptr){ lipp.print_depth();}
 
 private:
