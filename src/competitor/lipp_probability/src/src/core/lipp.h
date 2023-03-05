@@ -1017,7 +1017,7 @@ public:
           if (node->items[i].entry_type == 1) {
             s.push(node->items[i].comp.child);
             d.push(depth + 1);
-          } else if (node->items[i].entry_type != 1) {
+          } else if (node->items[i].entry_type == 2) {
             max_depth = std::max(max_depth, depth);
             sum_depth += depth;
             sum_nodes++;
@@ -3191,37 +3191,35 @@ private:
       {
         int lower_pos = 0;
         while (lower_pos < node->num_items) {
-          if (node->items[lower_pos].entry_type != 0) {
-            if (node->items[lower_pos].comp.data.key >= lower) {
-              results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
-              pos++;
-            } else {
-              pos = range_core_len < true > (results, pos, node->items[lower_pos].comp.child, lower, len);
-            }
-            if (pos >= len) {
-              return pos;
-            }
+          if (node->items[lower_pos].entry_type == 2) {
+            results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
+            pos++;
+          }else if(node->items[lower_pos].entry_type == 1){
+            pos = range_core_len < true > (results, pos, node->items[lower_pos].comp.child, lower, len);
+          }
+          if (pos >= len) {
+            return pos;
           }
           lower_pos++;
         }
         return pos;
       } else {
 
-        EpochGuard guard(this);
+        /*EpochGuard guard(this);
         int restartCount = 0;
         restart:
         if (restartCount++)
           yield(restartCount);
-        bool needRestart = false;
+        bool needRestart = false;*/
 
         // for lock coupling
-        uint64_t versionItem;
+        //uint64_t versionItem;
 
         int lower_pos = PREDICT_POS(node, lower);
 
-        versionItem = node->items[lower_pos].readLockOrRestart(needRestart);
+        /*versionItem = node->items[lower_pos].readLockOrRestart(needRestart);
         if (needRestart)
-          goto restart;
+          goto restart;*/
 
         if (node->items[lower_pos].entry_type != 0) {
           if (node->items[lower_pos].entry_type == 2) {
@@ -3233,9 +3231,9 @@ private:
           } else {
             pos = range_core_len < false > (results, pos, node->items[lower_pos].comp.child, lower, len);
           }
-          node->items[lower_pos].readUnlockOrRestart(versionItem, needRestart);
+          /*node->items[lower_pos].readUnlockOrRestart(versionItem, needRestart);
           if (needRestart)
-            goto restart;
+            goto restart;*/
           if (pos >= len) {
             return pos;
           }
@@ -3246,7 +3244,7 @@ private:
         lower_pos++;
         while (lower_pos < node->num_items) {
           if (node->items[lower_pos].entry_type != 0) {
-            if (node->items[lower_pos].comp.data.key >= lower) {
+            if (node->items[lower_pos].entry_type==2) {
               results[pos] = {node->items[lower_pos].comp.data.key, node->items[lower_pos].comp.data.value};
               pos++;
             } else {

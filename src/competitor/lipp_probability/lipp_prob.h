@@ -66,9 +66,9 @@ template<class KEY_TYPE, class PAYLOAD_TYPE>
 size_t LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>::scan(KEY_TYPE key_low_bound, size_t key_num,
                                                    std::pair <KEY_TYPE, PAYLOAD_TYPE> *result,
                                                    Param *param) {
-    // if(!result) {
-    //     result = new std::pair <KEY_TYPE, PAYLOAD_TYPE>[key_num];
-    // }
-    // return lipp.range_query_len(result, key_low_bound, key_num);
-    return 0;
+    if(!result) {
+         result = new std::pair <KEY_TYPE, PAYLOAD_TYPE>[key_num];
+    }
+    return lipp.range_query_len(result, key_low_bound, key_num);
+    //return 0;
 }

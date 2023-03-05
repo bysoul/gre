@@ -24,13 +24,13 @@ int main() {
   keys[4]={10000,10000};
   keys[5]={10000,10000};
    lipp.bulk_load(keys, 5);
-  /*std::pair <int, int> *result = new std::pair <int, int>[200];
-  int ret=lipp.range_query_len(result, 457, 5);
+  std::pair <int, int> *result = new std::pair <int, int>[200];
+  int ret=lipp.range_query_len(result, 100, 2);
   for(int i=0;i<ret;i++){
     std::cout<<"scan "<<result[i].first<<" "<<result[i].second<<std::endl;
-  }*/
+  }
 
-  printf("start\n");
+/*  printf("start\n");
 
 #pragma omp parallel for schedule(static, 1)
   for (int i = 0; i < 1; i++) {
@@ -50,7 +50,7 @@ int main() {
   for (int i = 0; i < 1; i++) {
     lipp.insert(88,88);
   }
-  lipp.show();
+  lipp.show();*/
   //insert(0,0);
   //insert(9999999,9999999);
 
