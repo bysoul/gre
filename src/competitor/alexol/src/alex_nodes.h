@@ -11,6 +11,7 @@
 #pragma once
 
 #include "alex_base.h"
+#include <sched.h>
 
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
@@ -1868,6 +1869,7 @@ public:
     // Try to get the exclusive lock
     uint32_t lock_version;
     if (!try_get_lock()) {
+      sched_yield();
       return {4, -1};
     }
 
