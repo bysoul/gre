@@ -13,6 +13,8 @@
 #include <fstream>
 #include <thread>
 #include <ctime>
+#include <sched.h>   //cpu_set_t , CPU_SET
+#include <pthread.h> //pthread_t
 
 #include "../tscns.h"
 #include "omp.h"
@@ -355,6 +357,14 @@ public:
         PAYLOAD_TYPE val;
         std::pair <KEY_TYPE, PAYLOAD_TYPE> *scan_result = new std::pair<KEY_TYPE, PAYLOAD_TYPE>[scan_num];
         // waiting all thread ready
+        /*const auto native_thread_handle = pthread_self();
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(CPUS[cpu], &cpuset);
+        int rc = pthread_setaffinity_np(native_thread_handle, sizeof(cpu_set_t), &cpuset);
+        if (rc != 0) {
+          std::cerr << "Error calling pthread_setaffinity_np: " << rc << "\n";
+        }*/
 #pragma omp barrier
 #pragma omp master
         start_time = tn.rdtsc();
