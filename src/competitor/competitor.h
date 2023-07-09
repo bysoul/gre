@@ -16,7 +16,7 @@
 #include "./lippol/lippol.h"
 #include "./lipp_probability_t/lipp_prob_t.h"
 #include "./lipp_probability/lipp_prob.h"
-#include "./lipp_p/lipp_p.h"
+//#include "./lipp_p/lipp_p.h"
 /*#include "pgm/pgm.h"
 #include "btree/btree.h"*/
 // #include "wormhole/wormhole.h"
@@ -83,9 +83,6 @@ indexInterface<KEY_TYPE, PAYLOAD_TYPE> *get_index(std::string index_type) {
   }
   else if (index_type == "lipp") {
     index = new LIPPInterface<KEY_TYPE, PAYLOAD_TYPE>;
-  }
-  else if (index_type == "lipp_p") {
-    index = new LIPPPInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }
   else if (index_type == "lipp_prob") {
     index = new LIPPPROBInterface<KEY_TYPE, PAYLOAD_TYPE>;

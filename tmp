@@ -1,33 +1,23 @@
-#!/bin/bash
-cd ./build
-thread_num=(1 4 8 16 24 36 48 60 70 80 90 100)
-index=(masstree artolc alexol lipp_prob lippol xindex finedex)
-data=(covid osm libio genome)
-
-for(( x=0;x<${#data[@]};x++))
-do
-  for(( y=0;y<${#index[@]};y++))
-  do
-    for(( i=0;i<${#thread_num[@]};i++))
-    do
-      ./microbench --keys_file=../data/datasets/"${data[x]}" --keys_file_type=binary --read=1 --insert=0 --operations_num=200000000 --table_size=-1 --init_table_ratio=1 --output_path=./final/"${data[x]}"ro.txt --thread_num="${thread_num[i]}" --memory=1 --index="${index[y]}"
-      rm core.*
-      ./microbench --keys_file=../data/datasets/"${data[x]}" --keys_file_type=binary --read=0.8 --insert=0.2 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./final/"${data[x]}"8020.txt --thread_num="${thread_num[i]}" --memory=1 --index="${index[y]}"
-      rm core.*
-      ./microbench --keys_file=../data/datasets/"${data[x]}" --keys_file_type=binary --read=0.5 --insert=0.5 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./final/"${data[x]}"5050.txt --thread_num="${thread_num[i]}" --memory=1 --index="${index[y]}"
-      rm core.*
-      ./microbench --keys_file=../data/datasets/"${data[x]}" --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.5 --output_path=./final/"${data[x]}"wo.txt --thread_num="${thread_num[i]}" --memory=1 --index="${index[y]}"
-      rm core.*
-    done
-  done
-done
-
-#!/bin/bash
-cd ./build
-#array=(covid osm libio genome wise book fb)
-array=(osm covid libio wise)
-for(( i=0;i<${#array[@]};i++))
-do
-  ./microbench --keys_file=../data/datasets/"${array[i]}" --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.25 --output_path=./t.txt --thread_num=48 --memory=1 --index=lipp_prob
-  ./microbench --keys_file=../data/datasets/"${array[i]}" --keys_file_type=binary --read=0 --insert=1 --operations_num=200000000 --table_size=-1 --init_table_ratio=0.25 --output_path=./t.txt --thread_num=48 --memory=1 --index=lipp_prob_t
-done
+图1-1多线程下学习索引的性能	2
+图2-1 学习索引的结构	7
+图2-2 RMI的索引结构	8
+图2-3 RS的索引结构	9
+图2-4基于缓冲区的插入策略	10
+图2-5 FITing-tree的索引结构	11
+图2-6 PGM-Index的索引结构	12
+图2-7 基于模型的插入策略	13
+图2-8 ALEX的索引结构	14
+图2-9 LIPP的索引结构	15
+图3-1 CAPM的索引结构	21
+图4-1 冷却池	34
+图5-1 写热点适应的演化	38
+图5-2 读热点适应的演化	39
+图5-3 冷热点适应的演化	41
+图6-1 Write-Only时索引的性能	45
+图6-2 Read-Intensive时索引的性能	47
+图6-3 Balanced时索引的性能	48
+图6-4 Read-Only时索引的性能	48
+图6-5 Read-Skew时索引的性能	49
+图6-6 Write-Skew时索引的性能	50
+图6-7 OSM数据集上索引的总空间占用	51
+图6-8 维护统计信息的开销	52
