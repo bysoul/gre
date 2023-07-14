@@ -32,7 +32,7 @@
 
 namespace lipp_prob {
 
-#define READ_EVOLVE 0
+#define READ_EVOLVE 1
 static thread_local int skip_counter = 0;
 static std::atomic_int64_t allocated = 0;
 static std::atomic_int64_t compressed = 0;
@@ -1712,7 +1712,12 @@ private:
     /// bulk build, _keys must be sorted in asc order.
     Node *
     build_tree_bulk(std::vector <T> *_keys, std::vector <P> *_values, bulk_args &args) {
+#if READ_EVOLVE
+      args._type=2;
+      return build_tree_bulk_two_model(_keys, _values, args);
+#else
       return build_tree_bulk_fmcd(_keys, _values, args);
+#endif
       /*if (USE_FMCD) {
         return build_tree_bulk_fmcd(_keys, _values, _size);
       } else {
@@ -2193,7 +2198,7 @@ private:
           node->build_time = _time;
           node->speed = speed;
           node->last_adjust_type = _type;
-          node->num_items = size * 2;
+          node->num_items = size * static_cast<int>(BUILD_GAP_CNT + 1);
           node->model.type = 1;
           long double mid_target;
           if (size == 3) {
