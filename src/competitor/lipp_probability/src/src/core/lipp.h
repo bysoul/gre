@@ -1374,7 +1374,6 @@ private:
           }
           return;
         }
-        std::cout << "Doing Compress 1" << std::endl;
 
         auto ret = victim_from_cooling_pool(&nodePair);
         if (ret == false) {
@@ -1451,7 +1450,6 @@ private:
 
         if (nodePair.parent_ == nullptr) {
           root = new_node;
-          std::cout << "Doing Compress Root" << std::endl;
           continue;
         }
         int pos = PREDICT_POS(nodePair.parent_, (*keys)[0]);
@@ -2477,9 +2475,6 @@ private:
               node->items[item_i].comp.child = new_nodes(1);
               s.push((Segment) {begin + offset, begin + next, level + 1, node->items[item_i].comp.child,
                                 speed / node->num_items});
-              /*if(speed / node->num_items ==0){
-                std::cout<<"speed == 0 parent_speed: "<<speed<<"num_items: "<<std::to_string(node->num_items)<<std::endl;
-              }*/
             }
             if (next >= size) {
               break;
